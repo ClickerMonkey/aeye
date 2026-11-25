@@ -3,8 +3,8 @@
  * error", with the upstream's message in `metadata.raw`.
  */
 
-import { z } from 'zod';
-import { AI, type AIContextAny } from '@aeye/ai';
+import { a } from '@aeye/schema';
+import { AI, type AIContextAny, type ModelInfo } from '@aeye/ai';
 import { SchemaRejectedError, type Request } from '@aeye/core';
 import { OpenRouterProvider } from '../openrouter';
 
@@ -12,6 +12,12 @@ const mockCreate = jest.fn();
 jest.mock('openai', () => jest.fn().mockImplementation(() => ({ chat: { completions: { create: mockCreate } } })));
 
 const ctx: AIContextAny = { ai: AI.with().providers({}).create({}), metadata: {} };
+
+/** Gemini as the registry knows it: structured output, so the schema goes as response_format. */
+const flash: ModelInfo = {
+  id: 'google/gemini-2.5-flash', provider: 'openrouter', name: 'Gemini 2.5 Flash', tier: 'efficient',
+  capabilities: new Set(['chat', 'structured', 'json']), pricing: {}, contextWindow: 1_000_000,
+};
 
 /** An error shaped like the SDK's APIError for an upstream failure. */
 function upstreamError(raw: string) {
@@ -25,9 +31,9 @@ async function rejection(error: Error) {
   mockCreate.mockRejectedValue(error);
   const request: Request = {
     messages: [{ role: 'user', content: 'Answer' }],
-    responseFormat: { type: z.object({ value: z.number() }), strict: 1 },
+    responseFormat: { type: a.object({ value: a.number() }).bind(), strict: 1 },
   };
-  return new OpenRouterProvider({ apiKey: 'test' }).createExecutor()(request, ctx, { model: 'google/gemini-2.5-flash' })
+  return new OpenRouterProvider({ apiKey: 'test' }).createExecutor()(request, ctx, { model: flash })
     .then(() => undefined, (e: unknown) => e);
 }
 

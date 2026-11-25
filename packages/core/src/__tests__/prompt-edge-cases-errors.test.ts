@@ -5,7 +5,7 @@
  * including abort signals, tool execution modes, error handling, and retry logic.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool } from '../tool';
 import { Context } from '../types';
@@ -56,7 +56,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'immediate-tool',
         description: 'Immediate tool',
         instructions: 'Execute immediately',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -102,7 +102,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'fast-tool',
         description: 'Fast tool',
         instructions: 'Fast execution',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'fast-result'
       });
 
@@ -148,7 +148,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'error-tool',
         description: 'Error tool',
         instructions: 'Throws error',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Tool error');
         }
@@ -247,7 +247,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'valid-tool',
         description: 'Valid',
         instructions: 'Valid',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'valid'
       });
 
@@ -298,7 +298,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'seq-error',
         description: 'Sequential error',
         instructions: 'Error',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Sequential error');
         }
@@ -346,7 +346,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'par-error',
         description: 'Parallel error',
         instructions: 'Error',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise(resolve => setTimeout(resolve, 5));
           throw new Error('Parallel error');
@@ -397,7 +397,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'custom-validation',
         description: 'Custom validation',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         validate: (output) => {
           if (output.value < 10) {
             throw new Error('Value must be at least 10');
@@ -436,7 +436,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'reconfig-config',
         description: 'Reconfig config',
         content: 'Test',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
         reconfig: (stats, ctx) => {
           reconfigCalled = true;
           return {
@@ -474,7 +474,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'limited-tool',
         description: 'Limited',
         instructions: 'Limited',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -484,7 +484,7 @@ describe('Prompt Final Coverage Lines', () => {
         content: 'Test',
         tools: [tool],
         toolIterations: 1,
-        schema: z.object({ summary: z.string() }),
+        schema: a.object({ summary: a.string() }),
         config: {
           toolChoice: 'required'
         }
@@ -520,7 +520,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'max-iterations',
         description: 'Max iterations',
         content: 'Test',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
         toolIterations: 0,
         forgetRetries: 0,
         toolRetries: 0,
@@ -540,20 +540,20 @@ describe('Prompt Final Coverage Lines', () => {
         messages: []
       };
 
-      await expect(prompt.get('result', {}, ctx)).rejects.toThrow('Prompt max-iterations failed: The output was not valid JSON:\nUnexpected end of JSON input');
+      await expect(prompt.get('result', {}, ctx)).rejects.toThrow(/^Prompt max-iterations failed: The output was not valid JSON:\n.*not valid JSON/);
     });
   });
 
   describe('Schema Compatibility Check', () => {
-    it('should return undefined when schema function returns false', async () => {
+    // `applicable` replaces `schema: () => false`: a direct run doesn't call the model.
+    it('should return undefined when the prompt is not applicable', async () => {
       const prompt = new Prompt({
         name: 'schema-false',
         description: 'Schema false',
         content: 'Test',
-        schema: (input, ctx) => {
-          // Return false to indicate incompatibility
-          return false;
-        }
+        schema: a.object({ value: a.string() }),
+        // Not applicable here: the prompt does not run.
+        applicable: () => false,
       });
 
       const executor = createMockExecutor({
@@ -619,7 +619,7 @@ describe('Prompt Final Coverage Lines', () => {
         name: 'parse-early-return',
         description: 'Parse early return',
         instructions: 'Parse',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
         call: (input) => input.value
       });
 

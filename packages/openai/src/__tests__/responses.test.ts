@@ -4,7 +4,7 @@
 
 import { AI, type AIContextAny, type Request } from '@aeye/ai';
 import { getResponseFromChunks, TEXT_TOOL_SCHEMA, type Chunk } from '@aeye/core';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { OpenAIProvider } from '../openai';
 
 const mockChatCreate = jest.fn();
@@ -67,7 +67,7 @@ describe('routing', () => {
     // 400 "Function tools with reasoning_effort are not supported" on Chat Completions
     mockResponsesCreate.mockResolvedValue(result([message('ok')]));
     mockChatCreate.mockResolvedValue({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] });
-    const tools = [{ name: 'weather', parameters: z.object({ city: z.string() }) }];
+    const tools = [{ name: 'weather', parameters: a.object({ city: a.string() }).bind() }];
 
     await provider.createExecutor()({ ...hi, tools, reason: { effort: 'low' } }, ctx, { model: 'gpt-5.4' });
     await provider.createExecutor()({ ...hi, tools, reason: { effort: 'none' } }, ctx, { model: 'gpt-5.4' });
@@ -105,7 +105,7 @@ describe('request', () => {
         },
         { role: 'tool', toolCallId: 'call_1', content: [{ type: 'text', content: 'Sunny' }, { type: 'image', content: 'https://example.com/map.png' }] },
       ],
-      tools: [{ name: 'weather', description: 'Weather lookup', parameters: z.object({ city: z.string() }) }],
+      tools: [{ name: 'weather', description: 'Weather lookup', parameters: a.object({ city: a.string() }).bind() }],
       toolChoice: { tool: 'weather' },
       hostedTools: [{ type: 'web_search', allowedDomains: ['weather.gov'] }],
       responseFormat: 'json',
@@ -264,8 +264,8 @@ describe('response', () => {
 
 describe('tool features', () => {
   const grammar = { type: 'grammar' as const, syntax: 'regex' as const, definition: '^\d+$' };
-  const sql = { name: 'run_sql', description: 'Run SQL', parameters: TEXT_TOOL_SCHEMA, format: grammar };
-  const weather = { name: 'weather', description: 'Weather', parameters: z.object({ city: z.string() }) };
+  const sql = { name: 'run_sql', description: 'Run SQL', parameters: TEXT_TOOL_SCHEMA.bind(), format: grammar };
+  const weather = { name: 'weather', description: 'Weather', parameters: a.object({ city: a.string() }).bind() };
 
   it('routes free-text, deferred, and async tools to Responses', async () => {
     mockResponsesCreate.mockResolvedValue(result([message('ok')]));

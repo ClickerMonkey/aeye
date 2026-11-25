@@ -1,7 +1,7 @@
 /**
  * dump-schema.ts — build a full `{ expr, type }` Zod schema with a mix of
- * Extension examples over the built-in types, convert via @aeye/core's
- * `toJSONSchema`, and write the result to `schema-dump.json` (gitignored).
+ * Extension examples over the built-in types, render them as core sends them
+ * to an OpenAI strict model (core's zod bridge into @aeye/schema), and write the result to `schema-dump.json` (gitignored).
  *
  * Run with:  npm run dump-schema
  *
@@ -13,7 +13,7 @@ import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { toJSONSchema } from '@aeye/core';
+import { fromZod, getProfile } from '@aeye/core';
 import { createRegistry, buildSchemas, type Registry } from '../src/index';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -98,7 +98,7 @@ function main(): void {
     type: opts.Type,
   });
 
-  const jsonSchema = toJSONSchema(topLevel, { strict: true });
+  const jsonSchema = fromZod(topLevel as never).bind().render(getProfile('openai-strict')!).jsonSchema;
 
   const out = resolve(__dirname, '..', 'schema-dump.json');
   writeFileSync(out, JSON.stringify(jsonSchema, null, 2) + '\n');

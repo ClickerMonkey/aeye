@@ -1,11 +1,12 @@
 import Handlebars from "handlebars";
-import { ZodString, ZodType } from 'zod';
+import { LENIENT, mergeErrorFormats, SchemaParseError, type Bound, type Encoder, type ErrorFormatInput } from '@aeye/schema';
 
 import { ALL_CLAIMS, claimsConflict, NO_CLAIMS, ToolClaims } from './claims';
 import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, forcesTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { getDescriptorById, strictify, decodeWire } from "./schema";
+import { isTextOutput, isZodTextSchema, planRequest, renderTemplate, requestPlan, schemaSource, trackedEncoder, type OutputSchema, type RequestPlan, type TemplateTrack } from "./schema";
+import { finishZod } from "./zod-bridge";
 import { OutputValidationError, PromptError, ReviewRejectedError, SchemaRejectedError, ToolExecutionError, ToolFailure, ToolInputError } from "./errors";
 import { SCHEMA_FALLBACKS, structuredOutput } from "./delivery";
 
@@ -123,10 +124,32 @@ export interface PromptInput<
   description: string;
   // A string defining the prompt content in Handlebars format.
   content: string;
-  // An object or function/promise that returns an object for the variables that are injected into the prompt content.
-  input?: Fn<Record<string, any>, [TInput | undefined, Context<TContext, TMetadata>]>;
-  // A schema or function/promise that returns a schema defining the expected output format of the prompt. If not provided, defaults to plain text.
-  schema?: Fn<ZodType<TOutput> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
+  /**
+   * An object or function/promise that returns an object for the variables
+   * that are injected into the prompt content. `encode` writes a value of
+   * the output the way this model writes it (`encode(example)`); the
+   * content can also say `{{encode value}}` and `{{schema}}`.
+   */
+  input?: Fn<Record<string, any>, [TInput | undefined, Context<TContext, TMetadata>, Encoder<TOutput>]>;
+  /**
+   * The output: one static `a` schema, or a bundle whose dynamic step takes
+   * `(ctx, input)`, bound per call. Without one the output is the model's
+   * text; `a.string()` (with checks, e.g. `.min(5)`) is the text too,
+   * checked. `TOutput` is inferred from it. Use `applicable` for a prompt
+   * that doesn't apply in some contexts.
+   *
+   * (A zod schema, or a function `(input, ctx)` returning one or `false`, is
+   * still accepted as a temporary bridge for @aeye/gin and @aeye/query.
+   * TODO(step 2): remove.)
+   */
+  schema?: OutputSchema<TOutput, Context<TContext, TMetadata>, TInput>;
+  /**
+   * How an answer that doesn't fit `schema` is told to the model: a detail
+   * level (`'summary'` · `'list'` · `'markers'` · `'full'`, the default) or
+   * the full options (see `ToolInput.errorFormat`). Wins over
+   * `ctx.errorFormat`.
+   */
+  errorFormat?: ErrorFormatInput;
   /**
    * Strict-mode policy for the output schema. Tri-state, with `1`
    * (best-effort preference) as the default when omitted:
@@ -136,9 +159,8 @@ export interface PromptInput<
    * - `false` — FORCE lenient. Output emitted as standard JSON, no `strict`
    *   flag on the wire.
    * - `number > 0` (default `1`) — PREFER strict, tolerate fallback. The
-   *   number is the priority — used by `SchemaBudget` to allocate strict
-   *   slots in priority order when the chosen descriptor has per-request
-   *   limits (e.g. Anthropic's 24 optional-param ceiling).
+   *   number is the priority when the request can't give every schema what
+   *   it asks for (e.g. Anthropic's 24 optional parameters per request).
    *
    * The legacy default of `true` was changed to `1` in v2 to keep
    * "it just works" against unknown/unannotated models.
@@ -149,8 +171,8 @@ export interface PromptInput<
    *
    * - `'auto'` — send the schema as structured output (`response_format`) when
    *   the selected model's dialect can express it; otherwise transparently DROP
-   *   the wire schema and deliver it as prompt TEXT. The existing extract +
-   *   `parse`/Zod path still validates the model's text JSON. Rescues providers
+   *   the wire schema and deliver it as prompt TEXT. The answer is decoded
+   *   and validated by the same schema either way. Rescues providers
    *   (e.g. Gemini) whose structured output 400s on unions/`$ref`. Under `'auto'`
    *   a RUNTIME fallback also fires (see `runtimeSchemaFallback`): if the model
    *   accepts the wire schema but replies with empty/unparseable content, or the
@@ -162,7 +184,7 @@ export interface PromptInput<
    *   JSON mode.
    * - `'prompt'` — always DROP the wire schema and deliver it as prompt text.
    *
-   * Only affects prompts with a structured (non-`ZodString`) `schema`. When a
+   * Only affects prompts with a structured (non-string) `schema`. When a
    * provider rejects a schema (`SchemaRejectedError`) the prompt steps down
    * `schemaFallbacks` from here.
    */
@@ -334,38 +356,16 @@ export interface PromptInput<
     call: ToolCall,
   ) => unknown | false | Promise<unknown | false>;
   /**
-   * Optional custom parser that REPLACES Zod validation of the model's
-   * STRUCTURED OUTPUT entirely.
+   * @deprecated Code-shape mapping belongs on the schema (`a.codec`,
+   * `.refine`); kept during the bridge. TODO(step 2): remove.
    *
-   * By default the structured-output path runs `JSON.parse` → Zod schema
-   * (`safeParseAsync`, after the wire `strictify`) → `validate`. When
-   * `parse` is supplied it takes Zod's place: the pipeline becomes
-   * `JSON.parse` → `parse` → `validate`, and the Zod schema (plus the
-   * descriptor `strictify` normalization) is SKIPPED for validation.
-   *
-   * The function receives the raw `JSON.parse`-d structured value and
-   * fully owns turning it into the typed `TOutput`. It returns EITHER:
-   * - the typed value `TOutput` on success, or
-   * - an `Error` to signal validation failure (equivalently, it may
-   *   `throw` that error) — the output is rejected and flows through the
-   *   SAME output-retry channel a Zod failure would (`outputRetries`),
-   *   surfacing the error's own `.message` back to the model.
-   *
-   * This mirrors `Tool.parse`'s `parse` hook, letting a caller (e.g.
-   * `@aeye/query`'s expr/query parser, which produces a typed AST plus
-   * `Problems`/`Code` diagnostics) return concise, compiler-style errors
-   * with source underlines INSTEAD of Zod's aggregate messages. The
-   * returned/thrown `Error` can be a rich subclass carrying structured
-   * diagnostics (its `message` is what the model-facing channel surfaces;
-   * no Zod vocabulary appears since Zod never runs).
-   *
-   * Only runs where Zod validation runs today: when a structured
-   * (non-`ZodString`) `schema` is present. The `schema` field is still
-   * required and continues to drive the model wire format. Absent ⇒
-   * unchanged behavior (Zod path).
+   * Optional custom parser of the model's STRUCTURED OUTPUT. The output is
+   * decoded from the model's wire shape first; when it doesn't fit the
+   * schema the parser gets it as the model sent it, and its `Error` is
+   * what the model is told.
    */
   parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
-  // Optional post-validation hook that runs after parsing succeeds (Zod or custom `parse`) on the final DECODED output (`TDecoded`). Can throw to trigger re-prompting.
+  // Optional post-validation hook that runs after decoding succeeds on the final DECODED output (`TDecoded`). Can throw to trigger re-prompting.
   validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   /**
    * Optional review of the parsed, validated output before it's returned,
@@ -551,7 +551,7 @@ export type PromptGet<
  *   description: 'Summarizes text',
  *   content: 'Summarize the following text:\n\n{{text}}',
  *   input: (input) => ({ text: input.text }),
- *   schema: z.object({ summary: z.string() }),
+ *   schema: a.object({ summary: a.string() }),
  * });
  *
  * const result = await summarizer.get({ text: 'Long text here...' });
@@ -592,11 +592,13 @@ export class Prompt<
   constructor(
     public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded>,
     private retool = resolveFn(input.retool),
-    // Schema stays raw. The matching strictify is applied lazily at validation
-    // time using the descriptor pinned on `request.responseFormat.descriptor`
-    // by whichever provider built the request — so the validator always
-    // matches the wire shape the model actually saw.
-    private schema = resolveFn(input.schema),
+    // One static schema; its dynamic part is bound per run with (ctx, input),
+    // and the answer is decoded through the plan the request was sent with,
+    // so decoding always matches the wire shape the model actually saw.
+    // (A bridged zod function keeps its old (input, ctx) order.)
+    private output = input.schema === undefined
+      ? undefined
+      : schemaSource<TOutput, [Context<TContext, TMetadata>, TInput]>(input.schema as never, (ctx, promptInput) => [promptInput, ctx]),
     private config = resolveFn(input.config),
     private translate = resolveFn(input.input),
     private content = Prompt.compileContent(input.content, !!input.tools?.length),
@@ -744,7 +746,7 @@ export class Prompt<
 
   /**
    * Determines if the prompt is applicable in the given context.
-   * By default, checks retool, schema, and config functions if provided.
+   * By default, checks the retool and config functions if provided.
    * 
    * @param ctx - The context to check applicability against.
    * @returns Whether the prompt is applicable.
@@ -762,9 +764,10 @@ export class Prompt<
     if (this.input.retool && await this.retool(undefined, ctx) === false) {
       return false;
     }
-    if (this.input.schema && await this.schema(undefined, ctx) === false) {
+    // A bridged zod schema function returning false means "not here" (TODO(step 2)).
+    if (this.output?.bridged && await this.output.bind(ctx, undefined as unknown as TInput) === undefined) {
       return false;
-    } 
+    }
     if (this.input.config && await this.config(undefined, ctx) === false) {
       return false;
     }
@@ -847,7 +850,7 @@ export class Prompt<
       return undefined;
     }
 
-    const { config, content, tools, toolObjects, responseFormat, schema } = resolved;
+    const { config, content, tools, toolObjects, responseFormat, output, textOutput, render } = resolved;
     const toolMode = this.input.toolExecution || 'immediate';
     const toolMap = new Map<string, { tool: PromptTools<TTools>, definition: ToolDefinition }>(
       toolObjects?.map(({ tool, definition }) => [tool.name, { tool, definition }] as any) || []
@@ -866,6 +869,8 @@ export class Prompt<
       messages: [ systemMessage ],
       tools,
       responseFormat,
+      ...(ctx.errorFormat !== undefined ? { errorFormat: ctx.errorFormat } : {}),
+      ...(render ? { templates: { message: systemMessage, render } } : {}),
     };
 
     const fixedToolChoice = forcesTool(request.toolChoice);
@@ -1057,6 +1062,10 @@ export class Prompt<
         if (chunk.toolCallNamed) {
           const toolName = chunk.toolCallNamed.name;
           const toolInfo = toolMap.get(chunk.toolCallNamed.name);
+          // A call to the request's dispatcher (more tools than the provider
+          // takes) names its tool in its arguments: resolved once they're in.
+          const plan = toolInfo?.definition.plan ?? requestPlan(request);
+          const dispatched = !toolInfo && plan.dispatcher?.name === toolName;
           const onToolResult = this.input.onToolResult;
           const onToolIntercept = this.input.onToolIntercept;
           const toolExecutor = newToolExecution(
@@ -1091,13 +1100,15 @@ export class Prompt<
             // The calls the model made before this one in the batch, the
             // ones its parallel claims may have it wait for.
             toolExecutors.slice(),
+            plan,
+            dispatched ? (name: string) => toolMap.get(name) : undefined,
           );
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
-          
+
           if (toolExecutor.tool) {
             yield emit({ type: 'toolParseName', tool: toolExecutor.tool, request });
-          } else {
+          } else if (!dispatched) {
             streamController.abort(toolExecutor.error);
             break;
           }
@@ -1107,8 +1118,10 @@ export class Prompt<
           const toolExecutor = toolExecutorMap.get(chunk.toolCallArguments.id);
           if (toolExecutor) {
             toolExecutor.toolCall = chunk.toolCallArguments;
-    
-            yield emit({ type: 'toolParseArguments', tool: toolExecutor.tool!, args: chunk.toolCallArguments.arguments, request });
+
+            if (toolExecutor.tool) {
+              yield emit({ type: 'toolParseArguments', tool: toolExecutor.tool, args: chunk.toolCallArguments.arguments, request });
+            }
           } else {
             console.error(`Received tool call arguments for unknown tool call ID ${chunk.toolCallArguments.id}`);
           }
@@ -1118,6 +1131,11 @@ export class Prompt<
           const toolExecutor = toolExecutorMap.get(chunk.toolCall.id);
           if (toolExecutor) {
             toolExecutor.toolCall = chunk.toolCall;
+
+            // A dispatched call learns its tool from its arguments.
+            if (!toolExecutor.tool && toolExecutor.resolveDispatched()) {
+              yield emit({ type: 'toolParseName', tool: toolExecutor.tool!, request });
+            }
 
             if (toolMode === 'immediate') {
               // Start execution immediately
@@ -1385,45 +1403,50 @@ export class Prompt<
       // If we are finished, parse the output
       if (stop) {
         let failure: OutputValidationError | undefined;
-        if (!schema || (schema instanceof ZodString)) {
+        // The output went as a schema (structured or as prompt text), not plain text.
+        const structured = !!output && !textOutput;
+        const invalid = (message: string, reason: OutputValidationError['reason']) =>
+          new OutputValidationError(this.truncateValidationError(message, this.input.validationErrorMaxLength), reason, content);
+        if (!output) {
           result = content as unknown as TDecoded;
+        } else if (textOutput) {
+          // `a.string()`: the text is the answer, checked against the schema.
+          const parsed = output.render(LENIENT).parse(content, {
+            errorFormat: mergeErrorFormats(ctx.errorFormat, this.input.errorFormat),
+            label: 'your answer',
+          });
+          if (!parsed.ok) {
+            failure = invalid(parsed.message, 'schema-parsing');
+          } else {
+            result = parsed.value as unknown as TDecoded;
+            try {
+              await this.input.validate?.(result, ctx);
+            } catch (validationError: any) {
+              failure = invalid(`The output failed validation:\n${validationError.message}`, 'validation');
+            }
+          }
         } else {
-          // Grab the JSON part from the content just in case. In the
-          // schema-delivery prompt-text fallback the model replies with
-          // freeform text (possibly fenced / prose-wrapped), so extract the
-          // outermost balanced `{…}` (see `extractJSONObject`).
-          const potentialJSON = extractJSONObject(content);
-
-          const invalid = (message: string, reason: OutputValidationError['reason']) =>
-            new OutputValidationError(this.truncateValidationError(message, this.input.validationErrorMaxLength), reason, content);
-          // The descriptor the provider shaped the output with, when the
-          // schema went on the wire.
-          const descriptorId = structuredOutput(request.responseFormat)?.descriptor;
+          // The answer is decoded through the plan the request was sent
+          // with: the same rendering the model was shown, so pairs become
+          // records, `null` becomes absent and JSON text is parsed back.
+          let parsedJSON: unknown;
+          let parsedOk = true;
           try {
-            const parsedJSON = JSON.parse(potentialJSON);
+            parsedJSON = parseAnswer(content);
+          } catch (parseError: any) {
+            parsedOk = false;
+            failure = invalid(`The output was not valid JSON:\n${parseError.message}`, 'json-parsing');
+          }
+          if (parsedOk) {
+            const entry = requestPlan(request).output!;
+            const decoded = entry.parse(parsedJSON);
 
             if (this.input.parse) {
-              // Custom parser REPLACES Zod validation of the structured
-              // output entirely. Mirrors Tool.parse's `parse` hook: the
-              // JSON.parse-d value is first DECODEd back from the provider
-              // wire shape to the CONCEPTUAL value via `decodeWire` (symmetric
-              // with the strictify ENCODE the provider used to build the
-              // request), so the caller's parser stays provider-agnostic — it
-              // never sees array-of-pairs records, numeric-key tuples, or
-              // null-for-optional. The parser returns the typed TOutput on
-              // success or an Error (returned OR thrown) carrying rich,
-              // compiler-style diagnostics. Zod's own validation is skipped. A
-              // returned/thrown Error flows through the SAME output-retry
-              // channel a Zod failure would, surfacing its own `.message`
-              // (no Zod vocabulary — Zod never ran). Absent ⇒ unchanged.
-              // Decode only when a descriptor was pinned; otherwise the wire
-              // shape IS the conceptual shape and `parsedJSON` passes through.
-              const decoded = descriptorId
-                ? decodeWire(schema, parsedJSON, getDescriptorById(descriptorId))
-                : parsedJSON;
+              // A custom parser (bridge) owns the output: decoded when it
+              // fits, as sent when it doesn't, so its diagnostics speak.
               let customResult: TDecoded | Error;
               try {
-                customResult = await this.input.parse(decoded, ctx);
+                customResult = await this.input.parse(decoded.ok ? decoded.value : parsedJSON, ctx);
               } catch (customError: any) {
                 customResult = customError instanceof Error ? customError : new Error(String(customError));
               }
@@ -1431,41 +1454,32 @@ export class Prompt<
                 failure = invalid(customResult.message, 'schema-parsing');
               } else {
                 result = customResult;
-
-                try {
-                  await this.input.validate?.(result, ctx);
-                } catch (validationError: any) {
-                  failure = invalid(`The output failed validation:\n${validationError.message}`, 'validation');
+              }
+            } else if (!decoded.ok) {
+              failure = invalid(decoded.message, 'schema-parsing');
+            } else {
+              let value: unknown = decoded.value;
+              if (this.output?.bridged) {
+                // A bridged zod schema parses the decoded value too (TODO(step 2)).
+                const finished = await finishZod(entry.boundSchema, value, parsedJSON, entry.errorFormat, entry.label);
+                if (finished.ok) {
+                  value = finished.value;
+                } else {
+                  failure = invalid(finished.message, 'schema-parsing');
                 }
               }
-            } else {
-            // Apply the same strictify rewrite the provider used for the wire
-            // shape, so array-of-pairs records / numeric-key tuples / etc.
-            // normalize back into the natural Zod shape before validation.
-            // The descriptor was pinned on the response format when the
-            // provider built the request. Fast cache lookup on retries.
-            const validationSchema = descriptorId
-              ? strictify(schema, getDescriptorById(descriptorId)) as typeof schema
-              : schema;
+              if (!failure) {
+                result = value as TDecoded;
+              }
+            }
 
-            const parsedSafe = await validationSchema.safeParseAsync(parsedJSON);
-            if (!parsedSafe.success) {
-              const issueSummary = parsedSafe.error.issues
-                .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
-                .join('\n')
-              failure = invalid(`The output was an invalid format:\n${issueSummary}`, 'schema-parsing');
-            } else {
-              result = parsedSafe.data as unknown as TDecoded;
-
+            if (!failure && result !== undefined) {
               try {
                 await this.input.validate?.(result, ctx);
               } catch (validationError: any) {
                 failure = invalid(`The output failed validation:\n${validationError.message}`, 'validation');
               }
             }
-            }
-          } catch (parseError: any) {
-            failure = invalid(`The output was not valid JSON:\n${parseError.message}`, 'json-parsing');
           }
 
           // Runtime schema-delivery fallback. The structured response was EMPTY
@@ -1485,6 +1499,7 @@ export class Prompt<
           // The switch is not remembered beyond this run. This reuses the
           // existing outputRetries re-prompt mechanism below to re-issue.
           if (
+            structured &&
             this.input.runtimeSchemaFallback !== false &&
             failure?.reason === 'json-parsing' &&
             !promotedToPromptDelivery &&
@@ -1643,13 +1658,18 @@ export class Prompt<
           break;
         }
 
-        const { config: dynamicConfig, content: dynamicContent, tools: dynamicTools, toolObjects: dynamicToolObjects, responseFormat: dynamicResponseFormat, schema: dynamicSchema } = dynamicResolved;
+        const { config: dynamicConfig, content: dynamicContent, tools: dynamicTools, toolObjects: dynamicToolObjects, responseFormat: dynamicResponseFormat, render: dynamicRender } = dynamicResolved;
 
         // Update request with new resolved state
         Object.assign(request, dynamicConfig);
         systemMessage.content = dynamicContent;
         request.tools = dynamicTools;
         request.responseFormat = dynamicResponseFormat;
+        if (dynamicRender) {
+          request.templates = { message: systemMessage, render: dynamicRender };
+        } else {
+          delete request.templates;
+        }
         fallbacksTaken.forEach(([step, target]) => step.apply(request, target));
 
         // Update toolMap with new tool objects
@@ -1730,9 +1750,15 @@ export class Prompt<
       return undefined;
     }
 
-    // Get prompt response schema, if false is returned context is not compatible with prompt
-    const schema = await this.schema(input, ctx);
-    if (schema === false) {
+    // A prompt that says it doesn't apply here doesn't run (was: a schema function returning false).
+    if (this.input.applicable && !(await this.input.applicable(ctx))) {
+      return undefined;
+    }
+
+    // The output schema, bound for this run. A bridged zod function returning
+    // false means the prompt isn't compatible with the context (TODO(step 2)).
+    const output: Bound<TOutput> | undefined = this.output ? await this.output.bind(ctx, input) : undefined;
+    if (this.output && !output) {
       return undefined;
     }
 
@@ -1783,37 +1809,64 @@ export class Prompt<
         .map(r => r.tool);
     }
 
-    // Each tool with its compiled instructions and definition; a tool that
-    // doesn't compile (no schema) is left out, and one without instructions
-    // adds nothing to the tools section
-    const compiled = selectedTools && selectedTools.length > 0
-      ? (await Promise.all(selectedTools.map(async (tool) => ({ tool, compiled: await tool.compile(ctx) }))))
-          .flatMap(({ tool, compiled }) => compiled ? [{ tool, instructions: compiled[0], definition: compiled[1] }] : [])
+    // Each tool with its definition (its schema bound for this run); a tool
+    // whose (bridged zod) schema function returns nothing is left out.
+    const defined = selectedTools && selectedTools.length > 0
+      ? (await Promise.all(selectedTools.map(async (tool) => ({ tool, definition: await tool.definition(ctx) }))))
+          .flatMap(({ tool, definition }) => definition ? [{ tool, definition }] : [])
       : undefined;
-    const instructions = compiled?.map(c => c.instructions).filter(Boolean).join("\n\n");
-    const tools = compiled?.map(c => c.definition);
-    const toolObjects = compiled?.map(({ tool, definition }) => ({ tool, definition })) ?? [];
+    const tools = defined?.map(d => d.definition);
+    const toolObjects = defined ?? [];
 
-    // Compute the input that is fed to the prompt's prompt content
-    let contentInput: Record<string, any> = input;
-    const translated = await this.translate(input, ctx);
-    if (translated) {
-      contentInput = translated;
-    }
-    contentInput.tools = instructions;
-
-    // Compute content using the compiled template
-    const content = this.content(contentInput);
-
-    // Determine response format
-    const responseFormat: ResponseFormat = schema && !(schema instanceof ZodString)
-      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1, schemaDelivery: this.input.schemaDelivery ?? 'auto' }
+    // Determine response format: `a.string()` answers in text.
+    const textOutput = !!output && (isTextOutput(output) || isZodTextSchema(this.input.schema));
+    const responseFormat: ResponseFormat = output && !textOutput
+      ? {
+          type: output,
+          strict: this.input.strict ?? 1,
+          schemaDelivery: this.input.schemaDelivery ?? 'auto',
+          ...(this.input.errorFormat !== undefined ? { errorFormat: this.input.errorFormat } : {}),
+        }
       : 'text';
 
-    return { config, content, tools, toolObjects, responseFormat, schema };
+    // The system text for a plan: each tool's instructions (into
+    // `{{tools}}`) and the content, with `{{encode}}` / `{{schema}}` and the
+    // `input` function's encoder writing in the plan's shapes.
+    const render = async (plan: RequestPlan, track?: TemplateTrack): Promise<string> => {
+      const instructions = defined
+        ? (await Promise.all(defined.map(({ tool }) => tool.instructionsFor(ctx, plan, track)))).filter(Boolean).join("\n\n")
+        : undefined;
+
+      // Compute the input that is fed to the prompt's prompt content
+      let contentInput: Record<string, any> = input;
+      const encode = trackedEncoder<TOutput>(plan, 'output', textOutput ? output : undefined, track);
+      const translated = await this.translate(input, ctx, encode);
+      if (translated) {
+        contentInput = translated;
+      }
+      contentInput.tools = instructions;
+
+      return renderTemplate(this.content, contentInput, plan, plan.output ? 'output' : undefined, track);
+    };
+
+    // Rendered now in the code shape; text that used the schemas is
+    // rendered again for the model once the request is planned for it.
+    const track: TemplateTrack = { used: false };
+    const content = await render(planRequest({ tools, responseFormat, errorFormat: ctx.errorFormat }), track);
+
+    return {
+      config,
+      content,
+      tools,
+      toolObjects,
+      responseFormat,
+      output,
+      textOutput,
+      render: track.used ? (plan: RequestPlan) => render(plan) : undefined,
+    };
   }
 
-  
+
 
   /**
    * Converts a non-streaming executor into a streamer by yielding response parts.
@@ -2055,6 +2108,9 @@ type ToolExecution<T> = {
    *  (we WANT visibility into model misbehavior; the prior name
    *  `emitRepaired` suggested success-only, which was wrong). */
   emitRepairAttempt(): boolean;
+  /** For a call to the request's dispatcher: picks the tool its arguments
+   *  name (once they're in). True when the call has its tool. */
+  resolveDispatched(): boolean;
   parse: () => Promise<ToolExecution<T>>;
   /** Parses, works out the call's claims, waits for the earlier calls in the
    *  batch they conflict with, then starts the call (status `executing`)
@@ -2093,6 +2149,24 @@ type ToolExecution<T> = {
    *  JSON.parse-d; `success` says whether the schema accepted the
    *  repaired value (false → original error was rethrown). */
   repairAttempt?: { fields: ReadonlyArray<string>; success: boolean };
+}
+
+/**
+ * The JSON of a structured answer: the whole reply, or the outermost
+ * object in it (a reply fenced or wrapped in prose, as in prompt-text
+ * delivery).
+ */
+function parseAnswer(content: string): unknown {
+  const text = content.trim();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const extracted = extractJSONObject(content);
+    if (!extracted || extracted === text) {
+      throw e;
+    }
+    return JSON.parse(extracted);
+  }
 }
 
 /**
@@ -2195,6 +2269,11 @@ function newToolExecution<T extends AnyTool>(
   // The calls the model made before this one in the same batch, in model
   // order: the only calls this one may wait for (ToolInput.parallelClaims).
   earlier: readonly ToolExecution<T>[] = [],
+  // The plan the request was sent with: the call is decoded through it.
+  plan?: RequestPlan,
+  // For a call to the plan's dispatcher: the prompt's tool by the name the
+  // call's arguments pick.
+  dispatchTo?: (name: string) => { tool: T, definition: ToolDefinition } | undefined,
 ) {
   // The context the call runs with, which its claims are worked out with too.
   const callCtx = { ...ctx, toolCallId: toolCall.id };
@@ -2208,7 +2287,7 @@ function newToolExecution<T extends AnyTool>(
   const suspend = emitter();
   const repairAttempt = emitter();
 
-  if (!toolInfo) {
+  if (!toolInfo && !dispatchTo) {
     error.ready = true;
   }
 
@@ -2216,8 +2295,29 @@ function newToolExecution<T extends AnyTool>(
     toolCall: toolCall,
     tool: toolInfo?.tool,
     definition: toolInfo?.definition,
-    status: toolInfo ? 'ready' : 'error',
-    error: toolInfo ? undefined : new ToolInputError(toolCall.name, `Tool not found: ${toolCall.name}`),
+    status: toolInfo || dispatchTo ? 'ready' : 'error',
+    error: toolInfo || dispatchTo ? undefined : new ToolInputError(toolCall.name, `Tool not found: ${toolCall.name}`),
+    resolveDispatched: () => {
+      if (toolInfo || !dispatchTo) {
+        return !!toolInfo;
+      }
+      let picked: unknown;
+      try {
+        picked = (JSON.parse(execution.toolCall.arguments) as { tool?: unknown })?.tool;
+      } catch {
+        return false;
+      }
+      if (typeof picked !== 'string') {
+        return false;
+      }
+      const name = plan?.has(picked) ? plan.get(picked as never).requestedName : picked;
+      toolInfo = dispatchTo(name);
+      if (toolInfo) {
+        execution.tool = toolInfo.tool;
+        execution.definition = toolInfo.definition;
+      }
+      return !!toolInfo;
+    },
     emitStart: start.emit,
     emitOutput: output.emit,
     emitError: error.emit,
@@ -2232,12 +2332,27 @@ function newToolExecution<T extends AnyTool>(
       const rawArgs = execution.toolCall.arguments;
       const isEmpty = !rawArgs || rawArgs.trim() === '';
       const args = isEmpty ? '{}' : rawArgs;
+      execution.resolveDispatched();
+      if (!toolInfo) {
+        // A dispatcher call whose `tool` names no tool of the prompt: the
+        // plan says what went wrong (and the nearest name).
+        let message = `Tool not found: ${toolCall.name}`;
+        try {
+          const decoded = plan?.decodeCall(toolCall.name, JSON.parse(args));
+          if (decoded && !decoded.ok) message = decoded.message;
+        } catch (e: any) {
+          message = `Error parsing tool arguments: ${e.message}`;
+        }
+        execution.status = 'invalid';
+        execution.error = new ToolInputError(toolCall.name, message, args);
+        error.ready = true;
+        return execution;
+      }
       try {
         execution.args = await toolInfo!.tool.parse(
           ctx,
           args,
-          toolInfo!.definition.parameters,
-          toolInfo!.definition.descriptor,
+          plan ?? toolInfo!.definition.plan,
           (info) => {
             // String-encoded-field fallback ran a repair attempt
             // (success OR failure). Stash the outcome so the outer
@@ -2248,6 +2363,7 @@ function newToolExecution<T extends AnyTool>(
             execution.repairAttempt = info;
             repairAttempt.ready = true;
           },
+          { name: toolCall.name },
         );
         execution.status = 'parsed';
       } catch (e: any) {
@@ -2259,9 +2375,10 @@ function newToolExecution<T extends AnyTool>(
         // fix itself on the retry turn instead of repeating the empty
         // call. The latter (bad arguments) keeps its original Zod /
         // JSON.parse message, which already names the offending field.
+        // A schema error already shows the model its own arguments.
         const reason = isEmpty
           ? `the tool was called with NO arguments. The schema requires arguments — re-call this tool with the required fields populated. Validation: ${e.message}`
-          : `${e.message}, args: ${args}`;
+          : e instanceof SchemaParseError ? e.message : `${e.message}, args: ${args}`;
         const formatted = `Error parsing tool arguments: ${reason}`;
         // The untruncated raw args go alongside the truncated model-facing
         // message so the diagnostic log gets the full payload.

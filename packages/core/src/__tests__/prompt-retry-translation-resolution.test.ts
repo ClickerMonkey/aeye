@@ -5,7 +5,7 @@
  * and various edge cases in prompt execution flow.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool } from '../tool';
 import { Context } from '../types';
@@ -18,7 +18,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'async-parse',
         description: 'Async parse tool',
         instructions: 'Parse async',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -87,7 +87,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'no-finish',
         description: 'No finish tool',
         instructions: 'No finish',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'executed'
       });
 
@@ -128,7 +128,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'undefined-result',
         description: 'Undefined result',
         instructions: 'Returns undefined',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => undefined
       });
 
@@ -169,7 +169,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'output-retry-decrement',
         description: 'Output retry decrement',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         outputRetries: 2
       });
 
@@ -197,7 +197,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'no-retries-break',
         description: 'No retries break',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         outputRetries: 0 // No retries
       });
 
@@ -223,7 +223,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'compiler-test-1',
         description: 'Compiler test 1',
         instructions: 'First tool instructions',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result1'
       });
 
@@ -231,7 +231,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'compiler-test-2',
         description: 'Compiler test 2',
         instructions: 'Second tool instructions',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result2'
       });
 
@@ -263,7 +263,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'filtered-tool-1',
         description: 'Filtered 1',
         instructions: 'Tool 1',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result1'
       });
 
@@ -271,7 +271,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'filtered-tool-2',
         description: 'Filtered 2',
         instructions: 'Tool 2',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result2'
       });
 
@@ -397,7 +397,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'existing-tool',
         description: 'Existing',
         instructions: 'Exists',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -447,7 +447,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'parse-error-tool',
         description: 'Parse error',
         instructions: 'Parse with error',
-        schema: z.object({ required: z.string().min(10) }), // Strict validation
+        schema: a.object({ required: a.string().min(10) }), // Strict validation
         call: (input) => input.required
       });
 
@@ -491,7 +491,7 @@ describe('Prompt Additional Coverage', () => {
         name: 'complex-tool',
         description: 'Complex tool',
         instructions: 'Complex operations',
-        schema: z.object({ data: z.string() }),
+        schema: a.object({ data: a.string() }),
         call: (input) => `processed: ${input.data}`
       });
 
@@ -502,7 +502,7 @@ describe('Prompt Additional Coverage', () => {
         input: (input: { text?: string }) => ({
           message: `transformed: ${input?.text || 'default'}`
         }),
-        schema: z.object({ result: z.string() }),
+        schema: a.object({ result: a.string() }),
         tools: [tool],
         outputRetries: 1,
         toolRetries: 1

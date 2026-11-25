@@ -130,7 +130,8 @@ export const define = <const D extends Defs>(defs: D): Module<D, {}> => new Modu
 /** Start a chain by pinning the types of refs a dynamic step will supply. */
 export const declare = <T extends Record<string, unknown>>(): Module<{}, T> => new Module();
 /** Start an empty chain. */
-export const module = (): Module<{}, {}> => new Module();
+const module_ = (): Module<{}, {}> => new Module();
+export { module_ as module };
 
 /** The code-shape type of a schema or bundle. */
 export type Infer<S extends { readonly _out: unknown }> = S['_out'];

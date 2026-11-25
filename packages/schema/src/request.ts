@@ -517,7 +517,14 @@ export function planRequest<const I extends readonly RequestItem[]>(target: Mode
     }
     if (!base.strict || p <= 0) {
       const why = !base.strict ? 'the model has no strict mode for this' : requested === false ? 'strict: false' : 'strict not requested';
-      entries[w.slot] = make(loose(base), false, 'structured', base.strict ? [{ kind: 'not-strict', reason: why }] : []);
+      // A family whose structured output is always strict (Claude) has no
+      // non-strict structured output: a schema that isn't to be strict goes
+      // as prompt text, unless structured delivery was insisted on.
+      if (w.kind === 'output' && base.strict && base.alwaysStrictOutput && w.delivery !== 'structured') {
+        entries[w.slot] = make(loose(base), false, 'prompt', [{ kind: 'prompt-text', reason: why }]);
+      } else {
+        entries[w.slot] = make(loose(base), false, 'structured', base.strict ? [{ kind: 'not-strict', reason: why }] : []);
+      }
       continue;
     }
 

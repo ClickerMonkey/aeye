@@ -2,8 +2,8 @@
  * Schema rejections and schema delivery in the OpenAI provider.
  */
 
-import { z } from 'zod';
-import { AI, type AIContextAny } from '@aeye/ai';
+import { a } from '@aeye/schema';
+import { AI, type AIContextAny, type ModelInfo } from '@aeye/ai';
 import { SchemaRejectedError, type Request } from '@aeye/core';
 import { OpenAIProvider } from '../openai';
 
@@ -17,7 +17,14 @@ function apiError(status: number, message: string) {
   return Object.assign(new Error(`${status} ${message}`), { status });
 }
 
-const lookup = { name: 'lookup', parameters: z.object({ q: z.string() }) };
+/** gpt-4o-mini as the registry knows it: strict tools and structured output. */
+const mini: ModelInfo = {
+  id: 'gpt-4o-mini', provider: 'openai', name: 'gpt-4o-mini', tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'toolsStrict', 'structured', 'json']),
+  pricing: { text: { input: 1, output: 1 } }, contextWindow: 128000, maxOutputTokens: 16384,
+};
+
+const lookup = { name: 'lookup', parameters: a.object({ q: a.string() }).bind() };
 
 function request(extra: Partial<Request>): Request {
   return { messages: [{ role: 'system', content: 'Answer.' }], ...extra };
@@ -26,7 +33,7 @@ function request(extra: Partial<Request>): Request {
 async function rejection(sent: Request, error: Error) {
   mockCreate.mockRejectedValue(error);
   const executor = new OpenAIProvider({ apiKey: 'test' }).createExecutor();
-  return executor(sent, ctx, { model: 'gpt-4o-mini' }).then(() => undefined, (e: unknown) => e);
+  return executor(sent, ctx, { model: mini }).then(() => undefined, (e: unknown) => e);
 }
 
 describe('OpenAI schema rejections', () => {
@@ -39,7 +46,7 @@ describe('OpenAI schema rejections', () => {
   });
 
   it('classifies a rejected output schema', async () => {
-    const sent = request({ responseFormat: { type: z.object({ value: z.number() }), strict: 1 } });
+    const sent = request({ responseFormat: { type: a.object({ value: a.number() }).bind(), strict: 1 } });
     const error = await rejection(sent, apiError(400, "Invalid schema for response_format 'response': ..."));
     expect(error).toMatchObject({ target: { kind: 'output' } });
   });
@@ -51,12 +58,12 @@ describe('OpenAI schema rejections', () => {
 
   it('sends a json-delivered schema as JSON mode with the schema in the prompt', async () => {
     mockCreate.mockResolvedValue({ choices: [{ message: { content: '{"value":1}' }, finish_reason: 'stop' }] });
-    const sent = request({ responseFormat: { type: z.object({ value: z.number() }), strict: 1, schemaDelivery: 'json' } });
+    const sent = request({ responseFormat: { type: a.object({ value: a.number() }).bind(), strict: 1, schemaDelivery: 'json' } });
 
     await new OpenAIProvider({ apiKey: 'test' }).createExecutor()(sent, ctx, { model: 'gpt-4o-mini' });
 
     const params = mockCreate.mock.calls[0][0];
     expect(params.response_format).toEqual({ type: 'json_object' });
-    expect(JSON.stringify(params.messages)).toContain('conforming to this schema');
+    expect(JSON.stringify(params.messages)).toContain('The response must be JSON of this type:');
   });
 });

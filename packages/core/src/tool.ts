@@ -1,16 +1,11 @@
 import Handlebars from 'handlebars';
-import z, { ZodType } from 'zod';
+import { SchemaParseError, type DecodedCall, type Encoder, type ErrorFormatInput, type RequestEntry } from '@aeye/schema';
 import { NO_CLAIMS, ToolClaims } from './claims';
-import { Fn, repairStringEncodedFields, resolveFn } from './common';
-import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
+import { Fn, resolveFn } from './common';
+import { planRequest, renderTemplate, schemaSource, trackedEncoder, type RequestPlan, type TemplateTrack, type ToolSchema } from './schema';
+import { finishZod } from './zod-bridge';
 import { Component, ComponentCompatible, Context, OptionalParams, Request, SchemaDelivery, ToolChoice, ToolDefinition, ToolTextFormat, Tuple } from './types';
     
-/**
- * The schema of a free-text tool (`ToolDefinition.format`): the text arrives
- * as `input`.
- */
-export const TEXT_TOOL_SCHEMA = z.object({ input: z.string() });
-
 /**
  * A tool's description for providers that send a free-text tool as an
  * ordinary one-field function: a grammar its input must match is appended,
@@ -32,7 +27,7 @@ export function forcesTool(choice: ToolChoice | undefined): boolean {
 /**
  * The request with only its allowed tools, for providers that can't limit
  * the tools a model may call while sending them all. The tools keep their
- * identity, so descriptors pinned on them still reach the Prompt.
+ * identity, so plans pinned on them still reach the Prompt.
  */
 export function withAllowedTools(request: Request): Request {
   const choice = request.toolChoice;
@@ -74,12 +69,39 @@ export interface ToolInput<
   descriptionFn?: Fn<string, [Context<TContext, TMetadata>]>;
   /** Instructions on how to use the tool, written in Handlebars format */
   instructions?: string;
-  /** Optional function that returns the tool's instructions based on the context */
-  instructionsFn?: Fn<string, [Context<TContext, TMetadata>]>;
-  /** Optional function that returns variables for the instructions Handlebars template */
-  input?: Fn<Record<string, any>, [Context<TContext, TMetadata>]>;
-  /** Zod schema defining the tool's input parameters */
-  schema: Fn<ZodType<TParams> | undefined, [Context<TContext, TMetadata>]>;
+  /**
+   * Optional function that returns the tool's instructions (a Handlebars
+   * template) based on the context. `encode` writes a value of the tool's
+   * arguments the way this model writes them (records as pairs on OpenAI
+   * strict, absent optionals as `null`, …): `encode({ query: 'x' })`.
+   */
+  instructionsFn?: Fn<string, [Context<TContext, TMetadata>, Encoder<TParams>]>;
+  /**
+   * Optional function that returns variables for the instructions Handlebars
+   * template; `encode` as in `instructionsFn`. The template can also write
+   * `{{encode value}}` (the value in the model's shape of these arguments)
+   * and `{{schema}}` (the arguments as TypeScript).
+   */
+  input?: Fn<Record<string, any>, [Context<TContext, TMetadata>, Encoder<TParams>]>;
+  /**
+   * The tool's arguments: one static `a` schema, or a bundle whose dynamic
+   * step takes the ctx (`a.define(...).dynamic((ctx) => ...).result(...)`),
+   * bound per call. `TParams` is inferred from it.
+   *
+   * (A zod schema, or a function returning one, is still accepted as a
+   * temporary bridge for @aeye/gin and @aeye/query. TODO(step 2): remove.)
+   */
+  schema: ToolSchema<TParams, Context<TContext, TMetadata>>;
+  /**
+   * How a call with bad arguments is told to the model: a detail level
+   * (`'summary'` · `'list'` · `'markers'` · `'full'`, the default) or the
+   * full options (`{ detail, maxErrors, maxChars, suggestions, expected,
+   * context, depth }`). The model's own JSON comes back with markers under
+   * the mistakes and "did you mean" for misspelt names, within
+   * `maxChars` (2000). Wins over `ctx.errorFormat`; a single parse can
+   * override it.
+   */
+  errorFormat?: ErrorFormatInput;
   /**
    * Strict-mode policy for this tool's schema. Tri-state, with `1` (best-effort
    * preference) as the default when omitted:
@@ -90,9 +112,11 @@ export interface ToolInput<
    *   regardless of model capability, no `strict: true` flag on the wire.
    * - `number > 0` (default `1`) — PREFER strict; tolerate fallback. The
    *   number is a priority — higher means more wanted. Selection biases
-   *   toward strict-capable models (optional capability). At request build
-   *   time the `SchemaBudget` allocates strict slots in priority order;
-   *   tools that don't fit fall back to lenient silently.
+   *   toward strict-capable models (optional capability). When the request
+   *   is planned for the model (`prepareRequest`) the most wanted tools take
+   *   the strict slots first; tools that don't fit go non-strict (still
+   *   validated), and past the provider's tool cap the least wanted go
+   *   behind one dispatcher tool. Nothing errors.
    *
    * Note: the legacy default of `true` was changed to `1` in v2 to keep
    * "it just works" against unknown/unannotated models. Set `strict: true`
@@ -111,37 +135,21 @@ export interface ToolInput<
   /** References to other components (tools, prompts, agents) that this tool utilizes */
   refs?: TRefs;
   /** The function that implements the tool's behavior. Receives the DECODED
-   * input: when a custom `parse` is supplied its RETURN type drives `TDecoded`
-   * (e.g. a built class instance); otherwise `TDecoded` defaults to the wire
-   * `TParams` (the Zod-inferred shape). */
+   * input in the code shape (records are records, absent is absent, whatever
+   * the model wrote): `TParams`, or the RETURN type of a custom `parse`. */
   call: (input: TDecoded, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
   /**
-   * Optional custom parser that REPLACES Zod validation entirely.
+   * @deprecated Code-shape mapping belongs on the schema (`a.codec`,
+   * `.refine`). Kept for @aeye/query's `buildQueryTool` during the bridge.
+   * TODO(step 2): remove.
    *
-   * By default `Tool.parse` runs `JSON.parse` → Zod schema → `validate`.
-   * When `parse` is supplied it takes Zod's place: the pipeline becomes
-   * `JSON.parse` → `parse` → `validate`, and the Zod schema (plus its
-   * string-encoded-field repair fallback) is SKIPPED.
-   *
-   * The function receives the raw `JSON.parse`-d value and fully owns
-   * turning it into the typed `TParams`. It returns EITHER:
-   * - the typed value `TParams` on success, or
-   * - an `Error` to signal validation failure (equivalently, it may
-   *   `throw` that error) — parsing short-circuits and the error flows
-   *   through the normal parse error channel.
-   *
-   * This lets a caller (e.g. `@aeye/query`'s expr/query parser, which
-   * already produces a typed AST plus `Problems`/`Code` diagnostics)
-   * return concise, compiler-style errors with source underlines
-   * INSTEAD of Zod's harder-to-follow messages. The returned/thrown
-   * `Error` can be a rich subclass carrying structured diagnostics
-   * (its `message` is what the model-facing error channel surfaces).
-   *
-   * Absent ⇒ unchanged behavior (Zod path). The `schema` field is still
-   * required and continues to be used for `compile()` / model wire format.
+   * A custom parser that owns turning the decoded arguments into `TDecoded`.
+   * The arguments are decoded from the model's wire shape first; when they
+   * don't fit the schema the parser gets them as the model sent them and
+   * its `Error` (returned or thrown) is what the model is told.
    */
   parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
-  /** Optional post-validation hook that runs after parsing succeeds (Zod or custom `parse`). Receives the DECODED value (`TDecoded`). Can throw to trigger re-prompting. */
+  /** Optional post-validation hook that runs after decoding succeeds. Receives the DECODED value (`TDecoded`). Can throw to trigger re-prompting. */
   validate?: (input: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   /**
    * Optional hard cap on the raw arguments STRING length. When set,
@@ -281,7 +289,7 @@ export class PromptSuspend extends Error {
  *   name: 'getWeather',
  *   description: 'Get current weather for a location',
  *   instructions: 'Use this tool to get weather information for {{location}}',
- *   schema: z.object({ location: z.string() }),
+ *   schema: a.object({ location: a.string() }),
  *   call: async (input) => {
  *     const response = await fetch(`/api/weather?loc=${input.location}`);
  *     return response.json();
@@ -299,14 +307,18 @@ export class Tool<
 > implements Component<TContext, TMetadata, TName, TDecoded, TOutput, TRefs> {
 
   /**
-   * Compiles the instructions template with or without input variables.
+   * Compiles an instructions template. A template is applied with Handlebars
+   * when it has input variables or uses the schema helpers (`{{encode}}`,
+   * `{{schema}}`); otherwise it's the text as written.
    *
    * @param instructions - The instructions template string.
    * @param hasInput - Whether the tool has input variables.
-   * @returns A compiled Handlebars template function or a simple string returner.
+   * @returns A template function.
    */
-  static compileInstructions(instructions: string, hasInput: boolean) {
-    return hasInput ? Handlebars.compile(instructions, { noEscape: true }) : () => instructions;
+  static compileInstructions(instructions: string, hasInput: boolean): (vars: Record<string, unknown>, options?: { data?: Record<string, unknown> }) => string {
+    return hasInput || /\{\{\{?\s*(encode|schema)\b/.test(instructions)
+      ? Handlebars.compile(instructions, { noEscape: true })
+      : () => instructions;
   }
 
   /**
@@ -317,12 +329,12 @@ export class Tool<
   constructor(
     public input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>,
     private instructions = input.instructions ? Tool.compileInstructions(input.instructions, !!input.input) : undefined,
-    // Schema stays raw. The provider applies the matching strictify lazily
-    // once it knows the chosen model's strict-tools format (descriptor).
-    private schema = resolveFn(input.schema),
+    // The schema stays one static instance; its dynamic part is bound per
+    // call, and the request plans its rendering once the model is known.
+    private source = schemaSource<TParams, [Context<TContext, TMetadata>]>(input.schema),
     private translate = resolveFn(input.input),
     private descriptionFn = resolveFn(input.descriptionFn),
-    private instructionsFn = resolveFn(input.instructionsFn, (r) => r ? Tool.compileInstructions(r, !!input.input) : undefined),
+    private instructionsFn = resolveFn(input.instructionsFn),
     private metadataFn = resolveFn(input.metadataFn),
     private parallelClaims = resolveFn(input.parallelClaims),
   ) {
@@ -345,39 +357,95 @@ export class Tool<
   }
 
   /**
-   * Parses and validates the input arguments using the tool's Zod schema.
-   * Also runs any custom validation defined in the tool configuration.
+   * The tool's argument schema bound for a call: the static schema, or the
+   * bundle with its dynamic step run for `ctx` (cached by the bundle's key).
+   * `undefined` only for a bridged zod function that returned nothing.
+   */
+  async bind(ctx: Context<TContext, TMetadata>) {
+    return this.source.bind(ctx);
+  }
+
+  /**
+   * The tool's definition for a request: its bound schema, description and
+   * strict policy. `undefined` when the tool has no schema here (a bridged
+   * zod function returned nothing); use `applicable` to hide a tool.
+   */
+  async definition(ctx: Context<TContext, TMetadata>): Promise<ToolDefinition | undefined> {
+    const parameters = await this.source.bind(ctx);
+    if (!parameters) {
+      return undefined;
+    }
+    // Default to numeric priority 1 (best-effort preference) instead of
+    // boolean true. See ToolInput.strict JSDoc for the tri-state semantics.
+    return {
+      name: this.input.name,
+      description: await this.descriptionFn(ctx) || this.input.description,
+      parameters,
+      strict: this.input.strict ?? 1,
+      ...(this.input.errorFormat !== undefined ? { errorFormat: this.input.errorFormat } : {}),
+      format: this.input.format,
+      defer: this.input.defer,
+      async: this.input.async,
+    };
+  }
+
+  /**
+   * The tool's instructions for a request plan: the template (static, or
+   * from `instructionsFn`) applied to its input variables, with
+   * `{{encode value}}` writing values the way the plan's model writes this
+   * tool's arguments. `''` without instructions.
    *
-   * Tolerates one specific model misbehavior: a tool-call payload whose
-   * top-level fields are JSON-stringified instead of nested as objects
-   * (`{program: "{\"kind\":...}"}` instead of `{program: {kind:...}}`).
-   * Claude Sonnet 4.x has been observed doing this when its structured
-   * tool args grow large. When the strict schema rejects, we try one
-   * fallback pass: JSON.parse any top-level string field whose value
-   * starts with `{` or `[`, then revalidate. If that succeeds, fire
-   * `onRepair` with the field names so the caller can emit telemetry
-   * (we want visibility, not silent absorption).
+   * @param ctx - The context.
+   * @param plan - The request's plan (`requestPlan`).
+   * @param track - Notes whether the text used the schema (and so depends on the model).
+   */
+  async instructionsFor(ctx: Context<TContext, TMetadata>, plan: RequestPlan, track?: TemplateTrack): Promise<string> {
+    const encode = trackedEncoder<TParams>(plan, this.input.name, undefined, track);
+    const template = this.input.instructionsFn
+      ? Tool.compileInstructions(await this.instructionsFn(ctx, encode) ?? '', !!this.input.input)
+      : this.instructions;
+    if (!template) {
+      return '';
+    }
+    const vars = this.input.input ? (await this.translate(ctx, encode)) || {} : {};
+    return renderTemplate(template, vars, plan, this.input.name, track);
+  }
+
+  /**
+   * The value-only encoder of the tool's arguments: `encode(value)` is the
+   * value as JSON text in the shape the plan's model writes it (the code
+   * shape without a plan).
+   */
+  async encoder(ctx: Context<TContext, TMetadata>, plan?: RequestPlan): Promise<Encoder<TParams>> {
+    const bound = await this.source.bind(ctx);
+    return trackedEncoder<TParams>(plan ?? planRequest({}), this.input.name, bound);
+  }
+
+  /**
+   * Decodes and validates a call's arguments through the request plan they
+   * were sent with, then runs the tool's `validate` hook.
+   *
+   * The arguments are decoded from the shape the model was given (pairs
+   * back to records, `null` back to absent, JSON text parsed, a container
+   * sent as a JSON string repaired) into the code shape, in place. A call
+   * through the dispatcher (`callName` is the dispatcher's) is decoded back
+   * to this tool. When they don't fit, a `SchemaParseError` is thrown whose
+   * `message` is what the model is told, in the tool's `errorFormat`.
    *
    * @param ctx - The context for parsing.
    * @param args - The input arguments as a JSON string.
-   * @param schema - Optional pre-compiled schema to use instead of resolving it again.
-   * @param descriptor - Provider wire-dialect descriptor for strictify.
-   * @param onRepairAttempt - Optional callback fired whenever the
-   *   fallback found at least one string-encoded top-level field worth
-   *   trying. Fires on BOTH outcomes — `success: true` when the
-   *   repaired value validated, `success: false` when even the
-   *   repaired value failed the schema. The callback is the caller's
-   *   telemetry hook; we want repair attempts visible regardless of
-   *   outcome so silent absorption of model misbehavior never happens.
-   * @returns The parsed and validated input parameters.
-   * @throws Error if schema is not available or parsing/validation fails.
+   * @param plan - The request's plan; without one the tool's own schema is used, in the code shape.
+   * @param onRepairAttempt - Fired when top-level fields arrived as JSON strings: `success` says whether the call then decoded.
+   * @param call - The name the model called (the dispatcher's, for a dispatched call) and a per-call error format.
+   * @returns The decoded arguments.
+   * @throws SchemaParseError when the arguments don't fit; Error for invalid JSON or a size cap.
    */
   async parse(
     ctx: Context<TContext, TMetadata>,
     args: string,
-    schema?: ZodType<TParams>,
-    descriptor?: FormatDescriptor | string,
+    plan?: RequestPlan,
     onRepairAttempt?: (info: { fields: ReadonlyArray<string>; success: boolean }) => void,
+    call: { name?: string; errorFormat?: ErrorFormatInput } = {},
   ): Promise<TDecoded> {
     // Hard cap on raw args length, applied BEFORE JSON.parse. Some
     // provider wire dialects (Claude Sonnet 4.5 via OpenRouter,
@@ -397,162 +465,105 @@ export class Tool<
       );
     }
 
-    let resolvedSchema = schema || await this.schema(ctx);
-
-    if (!resolvedSchema) {
-      throw new Error(`Not able to build a schema to parse arguments for ${this.input.name}`);
+    let target = plan;
+    if (!target) {
+      const definition = await this.definition(ctx);
+      if (!definition) {
+        throw new Error(`Not able to build a schema to parse arguments for ${this.input.name}`);
+      }
+      target = planRequest({ tools: [definition] });
     }
 
-    // The PRE-strictify conceptual schema — passed to `decodeWire` below,
-    // which strictifies internally. Using the already-strictified
-    // `resolvedSchema` would double-wrap the wire transforms.
-    const baseSchema = resolvedSchema;
-
-    // Apply the strictify rewrite that matches the provider's chosen wire
-    // dialect. The cache makes repeated calls O(1).
-    let fd: FormatDescriptor | undefined;
-    if (descriptor) {
-      fd = typeof descriptor === 'string' ? getDescriptorById(descriptor) : descriptor;
-      resolvedSchema = strictify(resolvedSchema, fd);
+    const raw: unknown = JSON.parse(args);
+    const name = call.name ?? this.input.name;
+    const dispatched = !!target.dispatcher && name === target.dispatcher.name;
+    const argsOf = (wire: unknown) => dispatched && wire && typeof wire === 'object' ? (wire as { args?: unknown }).args : wire;
+    // Top-level fields sent as JSON strings: the decoder repairs them; the
+    // caller hears about it either way (visibility, not silent absorption).
+    const encoded = jsonStringFields(argsOf(raw));
+    const opts = call.errorFormat !== undefined ? { errorFormat: call.errorFormat } : undefined;
+    let decoded: DecodedCall;
+    let repaired = 0;
+    const own = !dispatched && target.has(name) ? target.get(name as never) as unknown as RequestEntry<unknown> : undefined;
+    if (own && own.delivery !== 'dispatched' && this.source.bridged && own.profile.family === 'lenient' && own.rendered.wrapped === false) {
+      // A bridged zod schema sent in the code shape: nothing to decode, and zod
+      // (or the custom parser) validates below — as before the bridge, without
+      // trying every option of a huge union twice (TODO(step 2)).
+      decoded = { ok: true, tool: own.requestedName, value: raw };
+    } else if (own && own.delivery !== 'dispatched') {
+      const res = own.parse(raw, opts);
+      repaired = res.stats.repaired;
+      decoded = res.ok
+        ? { ok: true, tool: own.requestedName, value: res.value }
+        : { ok: false, tool: own.requestedName, issues: res.issues, message: res.message };
+    } else {
+      decoded = target.decodeCall(name, raw, opts);
+      repaired = encoded.length;
     }
+    if (encoded.length) {
+      const now = argsOf(raw) as Record<string, unknown> | undefined;
+      const fixed = encoded.filter(key => typeof now?.[key] !== 'string');
+      if (!decoded.ok) {
+        onRepairAttempt?.({ fields: encoded, success: false });
+      } else if (repaired > 0 && fixed.length) {
+        onRepairAttempt?.({ fields: fixed, success: true });
+      }
+    }
+    const entry = target.has(decoded.tool ?? name) ? target.get((decoded.tool ?? name) as never) as unknown as RequestEntry<unknown> : undefined;
 
-    const raw = JSON.parse(args);
-
-    // Custom parser REPLACES Zod entirely. When supplied, the pipeline is
-    // JSON.parse → decodeWire → parse → validate; Zod's own validation (and
-    // its string-encoded-field repair fallback) is skipped. `decodeWire`
-    // DECODEs the model's wire shape back to the CONCEPTUAL value (symmetric
-    // with strictify's encode) so the custom parser stays provider-agnostic —
-    // it never sees array-of-pairs records, numeric-key tuples, or
-    // null-for-optional. The parser returns the DECODED value (`TDecoded`,
-    // inferred from `parse`'s return type — e.g. a built class instance) on
-    // success or an Error (or throws one) to short-circuit with a rich,
-    // caller-supplied diagnostic (e.g. @aeye/query's Problems/Code output)
-    // instead of Zod's harder-to-follow message. Absent ⇒ unchanged and the
-    // Zod-inferred wire value flows through as the decoded value.
+    // A custom parser (bridge) owns the arguments: decoded when they fit,
+    // as sent when they don't, so its own diagnostics speak.
     if (this.input.parse) {
-      // Decode only when a descriptor is present; otherwise the wire shape IS
-      // the conceptual shape and `raw` passes through untouched.
-      const decoded = fd ? decodeWire(baseSchema, raw, fd) : raw;
-      const result = await this.input.parse(decoded, ctx);
+      const value = decoded.ok ? decoded.value : argsOf(raw);
+      const result = await this.input.parse(value, ctx);
       if (result instanceof Error) {
         throw result;
       }
-      // Post-validation hook runs on the decoded value.
       if (this.input.validate) {
         await this.input.validate(result, ctx);
       }
       return result;
     }
 
-    // No custom parser: Zod validates the wire shape. With no `parse`,
-    // `TDecoded` defaults to (and equals) the wire `TParams`, so the
-    // Zod-validated wire value IS the decoded value.
-    let parsed: TParams;
-    try {
-      parsed = await resolvedSchema.parseAsync(raw);
-    } catch (e) {
-      const repair = repairStringEncodedFields(raw);
-      if (repair) {
-        if (repair.fields.length === 0) {
-          // Fields LOOKED string-encoded but the inner JSON itself was
-          // malformed (Claude Sonnet 4.5 has been observed double-
-          // encoding large tool args AND corrupting the inner content
-          // mid-stream — mismatched brackets, truncation). The zod
-          // error doesn't say WHY the model's input is broken; replace
-          // it with a targeted, actionable cue so the next iteration
-          // sends the field as a real JSON object instead of a string.
-          onRepairAttempt?.({ fields: repair.attempted, success: false });
-          throw new Error(
-            `Field${repair.attempted.length > 1 ? 's' : ''} ${repair.attempted.map((f) => `\`${f}\``).join(', ')} ` +
-            `arrived as a JSON-encoded string with malformed inner JSON (likely truncated or unbalanced brackets). ` +
-            `Send ${repair.attempted.length > 1 ? 'these fields' : 'this field'} as a JSON object directly — ` +
-            `do NOT wrap the value in quotes or escape its contents. ` +
-            `If the program is large, break it into smaller helper functions first.`,
-          );
-        }
-        try {
-          parsed = await resolvedSchema.parseAsync(repair.value);
-          onRepairAttempt?.({ fields: repair.fields, success: true });
-        } catch {
-          // Repair candidate didn't actually fix things — surface the
-          // ORIGINAL error so the model sees its real mistake.
-          // Telemetry still fires so callers know repair was tried.
-          onRepairAttempt?.({ fields: repair.fields, success: false });
-          throw e;
-        }
-      } else {
-        throw e;
+    if (!decoded.ok) {
+      throw new SchemaParseError(decoded.issues, decoded.message);
+    }
+
+    let value: unknown = decoded.value;
+    if (this.source.bridged && entry) {
+      // A bridged zod schema parses the decoded value too (TODO(step 2)).
+      const finished = await finishZod(entry.boundSchema, value, argsOf(raw), call.errorFormat ?? entry.errorFormat, entry.label);
+      if (!finished.ok) {
+        throw new SchemaParseError([], finished.message);
       }
+      value = finished.value;
     }
 
-    // A dialect that sends optional fields as nullable (OpenAI strict) gets
-    // `null` for a field the model left out; the field's preprocess makes it
-    // `undefined`, but zod keeps the KEY. The source schema means "absent", and
-    // a JSON check downstream refuses an undefined value, so drop such keys.
-    if (fd?.optionalAsNullable) {
-      parsed = withoutUndefinedKeys(parsed) as TParams;
-    }
-
-    // With no custom `parse`, `TDecoded === TParams`, so the wire value is
-    // the decoded value; `decoded` re-binds it to the `TDecoded` view.
-    const decoded: TDecoded = parsed as TParams & TDecoded;
-
-    // Run post-validation hook if provided (on the decoded value).
+    // With no custom `parse`, `TDecoded` is `TParams`.
+    const result = value as TDecoded;
     if (this.input.validate) {
-      await this.input.validate(decoded, ctx);
+      await this.input.validate(result, ctx);
     }
-
-    return decoded;
+    return result;
   }
 
   /**
-   * Compiles the tool's instructions and schema into a ToolDefinition.
-   * This creates the format needed to pass tool information to AI models.
+   * Compiles the tool on its own (outside a prompt): its instructions,
+   * rendered in the code shape, and its definition. A tool with no
+   * instructions still compiles: its instructions are `''`. Only a tool
+   * whose (bridged zod) schema function returns nothing is left out; use
+   * `applicable` to hide a tool.
    *
    * @param ctx - The context for compilation.
-   * A tool with no instructions still compiles: its instructions are `''`
-   * (nothing is added to the prompt's tools section) and the model learns the
-   * tool from its description and schema. Only a tool whose schema resolves
-   * to nothing is left out; use `applicable` to hide a tool.
-   *
    * @returns A tuple of [instructions, toolDefinition], or undefined when the tool has no schema.
    */
   async compile(ctx: Context<TContext, TMetadata>): Promise<readonly [string, ToolDefinition] | undefined> {
-    const parameters = await this.schema(ctx);
-    if (!parameters) {
+    const definition = await this.definition(ctx);
+    if (!definition) {
       return undefined;
     }
-
-    // Get instructions template
-    const instructionsTemplate = this.input.instructionsFn
-      ? await this.instructionsFn(ctx) 
-      : this.instructions;
-
-    // Without instructions the tool is still offered; it adds nothing to the
-    // prompt's tools section.
-    const instructions = instructionsTemplate
-      ? instructionsTemplate(await this.translate(ctx) || {})
-      : '';
-    
-    // Get dynamic description if function is provided
-    const description = await this.descriptionFn(ctx) || this.input.description;
-    // Default to numeric priority 1 (best-effort preference) instead of
-    // boolean true. See ToolInput.strict JSDoc for the tri-state semantics.
-    const strict: boolean | number = this.input.strict ?? 1;
-
-    return [
-      instructions,
-      {
-        name: this.input.name,
-        description,
-        parameters,
-        strict,
-        format: this.input.format,
-        defer: this.input.defer,
-        async: this.input.async,
-      },
-    ] as const;
+    const plan = planRequest({ tools: [{ ...definition }] });
+    return [await this.instructionsFor(ctx, plan), definition] as const;
   }
 
   /**
@@ -579,7 +590,7 @@ export class Tool<
 
   /**
    * Determines whether the tool is applicable in the given context.
-   * By default, checks if the schema is available and if any referenced components are applicable.
+   * By default, checks if any referenced components are applicable.
    *
    * @param ctx - The context to check applicability against.
    * @returns A promise that resolves to true if the tool is applicable, false otherwise.
@@ -594,7 +605,8 @@ export class Tool<
     if (this.input.applicable) {
       return this.input.applicable(ctx);
     }
-    if (await this.schema(ctx) === undefined) {
+    // A bridged zod function returning nothing means "not here" (TODO(step 2)).
+    if (this.source.bridged && await this.source.bind(ctx) === undefined) {
       return false;
     }
 
@@ -667,24 +679,17 @@ export class Tool<
 
 }
 /**
- * A parsed value with every key whose value is `undefined` removed, through
- * plain objects and arrays (class instances and other values pass through).
- * Returns the same value when there is nothing to remove.
+ * The top-level fields of a call's arguments that arrived as JSON text
+ * (`{program: "{\"kind\":...}"}`): a slip Claude makes with large structured
+ * args, which the decoder repairs.
  */
-function withoutUndefinedKeys(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    const items = value.map(withoutUndefinedKeys);
-    return items.some((item, i) => item !== value[i]) ? items : value;
+function jsonStringFields(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'string') continue;
+    const head = value.trimStart()[0];
+    if (head === '{' || head === '[') out.push(key);
   }
-  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return value;
-  const entries = Object.entries(value as Record<string, unknown>);
-  let changed = false;
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of entries) {
-    if (item === undefined) { changed = true; continue; }
-    const next = withoutUndefinedKeys(item);
-    if (next !== item) changed = true;
-    out[key] = next;
-  }
-  return changed ? out : value;
+  return out;
 }

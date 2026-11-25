@@ -1,30 +1,30 @@
 /**
- * Structured-output custom parse (Zod replacement) tests.
+ * Structured-output custom parse (deprecated hook) tests.
  *
- * The optional `parse` hook on `PromptInput` fully REPLACES Zod validation
- * of the model's structured output. When supplied the pipeline becomes
- * JSON.parse → parse → validate; Zod (and the descriptor strictify) is
- * never consulted. Mirrors `Tool.parse`'s `parse` hook, letting a caller
- * (e.g. @aeye/query) surface concise, compiler-style errors with source
- * underlines instead of Zod's aggregate output. A returned/thrown Error
- * flows through the SAME output-retry channel a Zod failure would.
+ * The optional `parse` hook on `PromptInput` owns the model's structured
+ * output: it gets the decoded value when it fits the schema, the raw value
+ * otherwise, and its Error is what the model is told. The pipeline is
+ * JSON.parse → decode → parse → validate. Mirrors `Tool.parse`'s `parse`
+ * hook, letting a caller (e.g. @aeye/query) surface concise, compiler-style
+ * errors with source underlines. A returned/thrown Error flows through the
+ * SAME output-retry channel a schema failure would.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { Context } from '../types';
 import { createMockExecutor } from './mocks/executor.mock';
 
-describe('Prompt structured-output custom parse (Zod replacement)', () => {
-  it('should use the custom parser and skip Zod entirely', async () => {
-    // The Zod schema requires { value: number }. The model returns a shape
-    // Zod would REJECT ({ n: "5" }), but the custom parser accepts it and
-    // produces its own typed result. Zod must never run, so this succeeds.
+describe('Prompt structured-output custom parse (deprecated hook)', () => {
+  it('should use the custom parser even when the schema rejects the answer', async () => {
+    // The schema requires { value: number }. The model returns a shape the
+    // schema would REJECT ({ n: "5" }), but the custom parser gets it as sent
+    // and produces its own typed result, so this succeeds.
     const prompt = new Prompt<{}, {}, string, {}, { value: number }>({
       name: 'byo-output-parser',
       description: 'Bring your own structured-output parser',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       parse: (raw) => {
         const r = raw as { n?: unknown };
         return { value: Number(r.n) };
@@ -38,19 +38,19 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
 
     const result = await prompt.get('result', {}, ctx);
     expect(result).toEqual({ value: 5 });
-    // Only one round-trip — no retry was needed since Zod never rejected.
+    // Only one round-trip — no retry was needed.
     expect(executor).toHaveBeenCalledTimes(1);
   });
 
-  it('should surface a returned rich Error and NOT any Zod vocabulary', async () => {
+  it('should surface a returned rich Error and NOT any schema vocabulary', async () => {
     // Custom parser returns a compiler-style Error; with no retries left it
-    // becomes the thrown failure message. Zod's message vocabulary must not
-    // appear because Zod never ran.
+    // becomes the thrown failure message. The schema's message vocabulary
+    // must not appear.
     const prompt = new Prompt<{}, {}, string, {}, { value: number }>({
       name: 'byo-output-error-return',
       description: 'Custom parser returns rich error',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 0,
       parse: () => new Error('nice compiler-style error ^^^ here'),
     });
@@ -67,13 +67,12 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       msg = e.message;
     }
     expect(msg).toContain('nice compiler-style error ^^^ here');
-    // Zod's schema vocabulary must not appear, and the Zod-specific
-    // "invalid format" wrapper must not be used.
-    expect(msg).not.toMatch(/expected|invalid_type|invalid format|zod/i);
+    // The schema echo ("N problems in your answer", "Expected …") must not appear.
+    expect(msg).not.toMatch(/expected|problems? in your answer|zod/i);
   });
 
-  it('should follow the same retry path a Zod failure would (returned Error)', async () => {
-    // A returned Error retries through `outputRetries` exactly like a Zod
+  it('should follow the same retry path a schema failure would (returned Error)', async () => {
+    // A returned Error retries through `outputRetries` exactly like a schema
     // failure. First attempt fails via custom parse, second attempt the
     // custom parser accepts.
     let calls = 0;
@@ -81,7 +80,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       name: 'byo-output-retry',
       description: 'Custom parse retries via outputRetries',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 2,
       parse: (raw) => {
         calls++;
@@ -111,7 +110,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
     expect(result).toEqual({ value: 42 });
     expect(calls).toBe(2);
     // The retry surfaced the custom error as a corrective user message and
-    // reset the text, exactly as a Zod failure would.
+    // reset the text, exactly as a schema failure would.
     const reset = events.find((e) => e.type === 'textReset') as any;
     expect(reset?.reason).toBe('schema-parsing');
     const corrective = events.find(
@@ -137,7 +136,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       name: 'byo-output-throw',
       description: 'Custom parser throws rich error',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 0,
       parse: () => {
         throw new RichError('underlined ^^^ diagnostic', [{ code: 'field-type.unknown' }]);
@@ -165,7 +164,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       name: 'byo-output-validate',
       description: 'Custom parse + validate',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 1,
       parse: (raw) => ({ value: (raw as { value: number }).value }),
       validate: (output) => {
@@ -186,32 +185,32 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
     expect(result).toEqual({ value: 3 });
   });
 
-  it('should be fully backward-compatible: no parse option ⇒ Zod path unchanged', async () => {
+  it('without a parse option the schema decodes and rejects', async () => {
     const prompt = new Prompt<{}, {}, string, {}, { value: number }>({
       name: 'no-byo-output',
-      description: 'Default Zod path',
+      description: 'Default schema path',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 0,
     });
 
-    // Valid → Zod accepts.
+    // Valid → the schema accepts.
     const okExecutor = createMockExecutor({
       response: { content: JSON.stringify({ value: 9 }), finishReason: 'stop' },
     });
     const okCtx: Context<{}, {}> = { execute: okExecutor, messages: [] };
     expect(await prompt.get('result', {}, okCtx)).toEqual({ value: 9 });
 
-    // Invalid → Zod rejects with its usual "invalid format" message.
+    // Invalid → the schema rejects with the echo of the answer, marked.
     const badExecutor = createMockExecutor({
       response: { content: JSON.stringify({ value: 'nope' }), finishReason: 'stop' },
     });
     const badCtx: Context<{}, {}> = { execute: badExecutor, messages: [] };
-    await expect(prompt.get('result', {}, badCtx)).rejects.toThrow(/invalid format/i);
+    await expect(prompt.get('result', {}, badCtx)).rejects.toThrow(/1 problem in your answer[\s\S]*value: Expected a number, got string/);
   });
 
   it('should drive the DECODED output type from parse\'s return (class instance)', async () => {
-    // The Zod `schema` is the WIRE shape ({ value: number }); the custom
+    // The `schema` is the WIRE shape ({ value: number }); the custom
     // `parse` builds a `Built` class instance. Per the `TDecoded` generic,
     // the prompt's structured result (and `get('result')`) must be typed
     // and returned as the DECODED `Built`, not the wire shape.
@@ -228,7 +227,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       name: 'byo-output-decoded',
       description: 'parse returns a class instance',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       parse: (raw) => new Built(Number((raw as { value: number }).value)),
       validate: (output) => {
         // Compile-time: `output` is `Built` (has `doubled`).
@@ -253,7 +252,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
 
   it('should drive the DECODED output type from parse when it returns a PRIMITIVE (number)', async () => {
     // The widened `TDecoded extends unknown` constraint lets a Prompt's
-    // structured-output `parse` return a non-object. The Zod `schema` is the
+    // structured-output `parse` return a non-object. The `schema` is the
     // WIRE shape ({ value: number }); `parse` collapses it to a bare number.
     // The prompt's result (and `get('result')`) must be typed/returned as the
     // decoded `number`.
@@ -261,7 +260,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       name: 'byo-output-number',
       description: 'parse returns a bare number',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       parse: (raw) => Number((raw as { value: number }).value) + 1,
       validate: (output) => {
         // Compile-time: `output` is `number` (arithmetic type-checks).
@@ -285,7 +284,7 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
       name: 'byo-output-array',
       description: 'parse returns an array',
       content: 'Test',
-      schema: z.object({ csv: z.string() }),
+      schema: a.object({ csv: a.string() }),
       parse: (raw) => (raw as { csv: string }).csv.split(',').map(Number),
     });
 

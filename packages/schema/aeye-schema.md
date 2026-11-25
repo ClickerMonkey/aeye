@@ -20,8 +20,8 @@ It is built for what LLM schemas need and zod doesn't have:
 - **One rendering for everything** — the JSON sent, decoding, error paths, examples and values
   in instructions all come from the same rendering, so they can't disagree.
 
-> `private: true` for now: built and tested in the monorepo, not yet published. Integration into
-> `@aeye/core`, `@aeye/gin`, `@aeye/query` and the harness follows.
+> `private: true` for now: built and tested in the monorepo, not yet published. `@aeye/core` takes
+> `a` schemas (step 1, done; core re-exports `a`); `@aeye/gin`, `@aeye/query` and the harness follow.
 
 ## Install / import
 
@@ -474,3 +474,28 @@ of a dynamic step.
   limits (a deep grammar can render past OpenAI's 10 levels on its own).
 - A record sent as an object (or a JSON string of one) where pairs were asked for is repaired:
   its values are read in the code shape.
+
+## Migrating from zod
+
+Core's `Tool` and `Prompt` take `a` schemas. Most code moves one-for-one:
+
+| zod | `a` |
+|---|---|
+| `import { z } from 'zod'` | `import { a } from '@aeye/schema'` (or from `@aeye/core`) |
+| `z.object / string / number / boolean / array / enum / literal / union / tuple / null` | the same names on `a` |
+| `z.number().int()`, `z.int()` | `a.int()` (or `a.number().int()`) |
+| `z.record(z.string(), V)` | `a.record(V)`; `z.record(z.enum([...]), V)` → `a.record(a.enum([...]), V)` (keys optional) |
+| `z.any()` / `z.unknown()` | `a.unknown()` (or `a.json()` typed `JsonValue`) |
+| `z.string().email()` / `.url()` / `z.iso.date()` | `a.string().format('email' \| 'uri' \| 'date')` |
+| `.optional()`, `.nullable()`, `.default(v)`, `.describe()`, `.min/.max`, `.refine` | the same (`.optional().default(v)` → `.default(v)`); optional means the key is ABSENT after decoding, never `undefined` |
+| `.transform(fn)` | `a.codec(wire, { decode, encode })` — both directions, so values can be shown to the model |
+| `z.lazy(() => Node)` | a named type: `a.define({ Node: a.object({ kids: a.array(a.ref('Node')) }) }).result('Node')` |
+| `z.infer<typeof X>` | `a.infer<typeof X>` |
+| `schema: (ctx) => z...` (Tool) | a bundle: `a.declare<{ T: … }>().dynamic((ctx) => ({ T: … }), { key }).result(…)` — build it once, at module scope |
+| `schema: (input, ctx) => z...` (Prompt) | `.dynamic((ctx, input) => …)` — note the order |
+| `schema: () => undefined` / `() => false` | `applicable: (ctx) => false` |
+| `schema: z.string()` on a Prompt | `a.string()`: the answer is the model's text, checked |
+| a custom `parse` hook | `a.codec` / `.refine` on the schema (the hook still works, deprecated) |
+| `toJSONSchema(strictify(s, d), d)` in a provider | `await prepareRequest(request, model, { speaks })`, then `sentTools` / `sentOutput` (core) |
+
+Things that read differently on purpose: the value a tool receives is the code shape on every model (no `null` for left-out optionals, records are records); errors are the model's JSON with markers, not zod issue lists; `ToolDefinition.parameters` is a `Bound` (`schema.bind()`). Until @aeye/gin and @aeye/query produce `a` (step 2), core also accepts their zod schemas through a temporary bridge — new code shouldn't rely on it.

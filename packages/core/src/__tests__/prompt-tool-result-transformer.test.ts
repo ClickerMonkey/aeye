@@ -23,7 +23,7 @@
  * feature report.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent, ToolResultEvent } from '../prompt';
 import { AnyTool, Tool, PromptSuspend, ToolInterrupt } from '../tool';
 import { Context, Message } from '../types';
@@ -37,7 +37,7 @@ const searchTool = new Tool({
   name: 'search',
   description: 'Search the index',
   instructions: 'Search',
-  schema: z.object({ query: z.string() }),
+  schema: a.object({ query: a.string() }),
   call: (input) => ({ hits: 2, ids: ['a', 'b'], query: input.query }),
 });
 
@@ -45,7 +45,7 @@ const mathTool = new Tool({
   name: 'math',
   description: 'Add two numbers',
   instructions: 'Add',
-  schema: z.object({ a: z.number(), b: z.number() }),
+  schema: a.object({ a: a.number(), b: a.number() }),
   call: (input) => input.a + input.b,
 });
 
@@ -229,7 +229,7 @@ describe('Prompt onToolResult transformer', () => {
       name: 'boom',
       description: 'Throws',
       instructions: 'Boom',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => {
         throw new Error('kaboom');
       },
@@ -255,7 +255,7 @@ describe('Prompt onToolResult transformer', () => {
       name: 'suspends',
       description: 'Suspends',
       instructions: 'Suspend',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => {
         throw new PromptSuspend('need approval');
       },
@@ -282,7 +282,7 @@ describe('Prompt onToolResult transformer', () => {
       name: 'interrupts',
       description: 'Interrupts',
       instructions: 'Interrupt',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => {
         throw new ToolInterrupt('stop');
       },

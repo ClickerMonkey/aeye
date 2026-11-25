@@ -3,7 +3,7 @@
  * resolves its declared claims (Tool.claims / Tool.hasParallelClaims).
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ALL_CLAIMS, claimsConflict, claimWaits, NO_CLAIMS } from '../claims';
 import { Tool } from '../tool';
 import { Context } from '../types';
@@ -61,7 +61,7 @@ describe('claimWaits', () => {
 
 describe('Tool.claims', () => {
   type Ctx = Context<{ workspace: string }, {}>;
-  const schema = z.object({ path: z.string() });
+  const schema = a.object({ path: a.string() });
   const ctx: Ctx = { workspace: 'ws', toolCallId: 'call_1' };
 
   it('claims nothing when the tool declares no claims', async () => {

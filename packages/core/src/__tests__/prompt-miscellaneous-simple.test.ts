@@ -4,7 +4,7 @@
  * Simple, targeted tests for remaining uncovered lines
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { DEFAULT_USER_TURN, Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context } from '../types';
@@ -67,7 +67,7 @@ describe('Prompt Remaining Coverage', () => {
       name: 'json-tool',
       description: 'JSON tool',
       instructions: 'JSON',
-      schema: z.object({ value: z.string() }),
+      schema: a.object({ value: a.string() }),
       call: (input) => input.value
     });
 
@@ -146,7 +146,7 @@ describe('Prompt Remaining Coverage', () => {
       name: 'error-tool',
       description: 'Error tool',
       instructions: 'Error',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => {
         throw new Error('Tool error');
       }
@@ -156,7 +156,7 @@ describe('Prompt Remaining Coverage', () => {
       name: 'success-tool',
       description: 'Success tool',
       instructions: 'Success',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'success'
     });
 
@@ -199,7 +199,7 @@ describe('Prompt Remaining Coverage', () => {
       name: 'stream-tool',
       description: 'Stream tool',
       instructions: 'Stream',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'streamed'
     });
 
@@ -287,7 +287,7 @@ describe('Prompt Remaining Coverage', () => {
       name: 'stats-tool',
       description: 'Stats tool',
       instructions: 'Stats',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result'
     });
 
@@ -359,12 +359,12 @@ describe('Prompt Remaining Coverage', () => {
     expect(result).toBe('Just plain text response');
   });
 
-  it('should handle ZodString schema specifically', async () => {
+  it('should handle an a.string() schema as text output', async () => {
     const prompt = new Prompt({
-      name: 'zod-string',
-      description: 'Zod string',
+      name: 'text-string',
+      description: 'Text string',
       content: 'Test',
-      schema: z.string().min(5)
+      schema: a.string().min(5)
     });
 
     const executor = createMockExecutor({
@@ -388,7 +388,7 @@ describe('Prompt Remaining Coverage', () => {
       name: 'parse-error',
       description: 'Parse error',
       content: 'Extract data',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 2,
     });
 

@@ -4,7 +4,7 @@
  * Tests for metadata support in Prompt, Agent, and Tool components.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Agent } from '../agent';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
@@ -101,11 +101,11 @@ describe('Metadata', () => {
 
   describe('Tool', () => {
     it('should support static metadata', async () => {
-      const tool = new Tool<{}, TestMetadata>({
+      const tool = new Tool<{}, TestMetadata, string, { value: number }, number>({
         name: 'test-tool',
         description: 'Test tool',
         instructions: 'Test instructions',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         metadata: { model: 'gpt-3.5-turbo', temperature: 0.8 },
         call: (input) => input.value * 2
       });
@@ -121,7 +121,7 @@ describe('Metadata', () => {
         name: 'dynamic-tool',
         description: 'Tool with dynamic metadata',
         instructions: 'Tool instructions',
-        schema: z.object({ operation: z.string() }),
+        schema: a.object({ operation: a.string() }),
         metadataFn: (input, ctx) => ({ tags: [input.operation] }),
         call: (input) => `Performed ${input.operation}`
       });
@@ -137,7 +137,7 @@ describe('Metadata', () => {
         name: 'combined-tool',
         description: 'Tool with combined metadata',
         instructions: 'Tool instructions',
-        schema: z.object({ mode: z.string() }),
+        schema: a.object({ mode: a.string() }),
         metadata: { model: 'claude-3', temperature: 0.3 },
         metadataFn: (input, ctx) => ({ tags: [`mode-${input.mode}`] }),
         call: (input) => `Mode: ${input.mode}`
@@ -158,7 +158,7 @@ describe('Metadata', () => {
         name: 'no-metadata-tool',
         description: 'Tool without metadata',
         instructions: 'Instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x
       });
 
@@ -169,11 +169,11 @@ describe('Metadata', () => {
     });
 
     it('should return only static metadata when called with no arguments', () => {
-      const tool = new Tool<{}, TestMetadata>({
+      const tool = new Tool<{}, TestMetadata, string, { x: number }, number>({
         name: 'static-only-tool',
         description: 'Tool with static metadata only',
         instructions: 'Instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         metadata: { model: 'claude-3', temperature: 0.5 },
         call: (input) => input.x
       });
@@ -276,7 +276,7 @@ describe('Metadata', () => {
         name: 'test',
         description: 'Test',
         instructions: 'Test',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 

@@ -7,7 +7,7 @@
 
 import { describe, expect } from '@jest/globals';
 import { AI } from '@aeye/ai';
-import { getDescriptorById, type Request, type ToolDefinition } from '@aeye/core';
+import { type Request, type ToolDefinition } from '@aeye/core';
 import { models, strictSupport } from '@aeye/models';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
@@ -91,8 +91,9 @@ describeLive('live schema acceptance', () => {
           // occasionally end its turn without a token
           await firstChunk((signal) => ai.chat.stream(request, { signal, metadata: { model } }));
           if (shape === 'strict-tool' && !strictTools) {
-            expect(tool.descriptor).toBeDefined();
-            expect(getDescriptorById(tool.descriptor).strict).toBe(false);
+            // The plan pinned on the tool sent it non-strict
+            expect(tool.plan).toBeDefined();
+            expect(tool.plan!.get('record').strict).toBe(false);
           }
         }, 120_000);
       }

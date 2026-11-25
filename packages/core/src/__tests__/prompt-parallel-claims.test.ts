@@ -17,7 +17,7 @@
  * - every tool_call still gets its role:'tool' reply
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Fn } from '../common';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool } from '../tool';
@@ -43,7 +43,7 @@ function traced(name: string, log: string[], parallelClaims?: Claims, options: {
     name,
     description: name,
     instructions: name,
-    schema: z.object({ path: z.string().optional() }),
+    schema: a.object({ path: a.string().optional() }),
     parallelClaims,
     call: async (_input, _refs, ctx) => {
       log.push(`start:${ctx.toolCallId}`);

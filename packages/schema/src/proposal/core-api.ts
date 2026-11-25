@@ -1,5 +1,7 @@
 /**
- * PROPOSED @aeye/core API change (sketch; core integration is the next step).
+ * The @aeye/core API change, as proposed. IMPLEMENTED in @aeye/core (step 1 of the
+ * integration): see packages/core/src/{schema,tool,prompt}.ts. Kept as the type-level
+ * sketch the corpus files port against.
  *
  * Today:
  *   Tool.schema:   Fn<ZodType<TParams> | undefined, [ctx]>          // a schema OR a function returning one (rebuilt per call)
@@ -60,8 +62,10 @@ export interface ToolInputV2<TContext, TName extends string, TParams, TOutput> {
 export interface PromptInputV2<TContext, TName extends string, TInput, TOutput> {
   name: TName;
   content: string;
-  /** Output schema: static, or with dynamic parts bound from (ctx, input). Absent = text. */
+  /** Output schema: static, or with dynamic parts bound from (ctx, input). Absent = text; `a.string()` = the text, checked. */
   schema?: Bindable<TOutput, [ctx: Context<TContext>, input: TInput]>;
+  /** Was: the schema function returning `false`. */
+  applicable?: (ctx: Context<TContext>) => boolean | Promise<boolean>;
   /** How an answer that doesn't fit `schema` is told to the model (as on a tool). */
   errorFormat?: ErrorFormatInput;
 }

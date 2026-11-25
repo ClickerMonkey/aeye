@@ -1,7 +1,8 @@
-import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import { globalToolProperties, type CletusAI, type CletusAIContext } from '../ai';
 import { getOperationInput } from '../operations/types';
-import { createDBASchemas } from '../helpers/dba';
+import { DBAGrammar, dbaTypeDefs, typesKey, type Query } from '../helpers/dba';
+import { TypeNameModule, type TypesContext } from '../helpers/type';
 import { TypeDefinition } from '../schemas';
 import { QUERY_EXAMPLES } from '../helpers/dba-examples';
 
@@ -11,6 +12,62 @@ import { QUERY_EXAMPLES } from '../helpers/dba-examples';
 function shouldUseStringSchema(types: TypeDefinition[], maxQuerySchemaTypes: number): boolean {
   return types.length > maxQuerySchemaTypes;
 }
+
+const QUERY_STRING_DOC = 'A detailed description of the query to execute. Must be a comprehensive description of the query to perform (selects, inserts, updates, deletes, and ctes are supported - all major Postgres expressions). Must include which types are involved, any filter conditions, known record IDs if applicable, and the precise outcome desired. Be specific and details. Do not provide a SQL looking query - you do not have enough type information to do so. You can include SQL like logic at the end if its the best way to describe complex logic that is needed.';
+
+// The type enums are bound per call from the configured types.
+
+const DataIndexArgs = TypeNameModule.result(a.object({
+  type: a.ref('TypeName').describe('Type name to index'),
+  ...globalToolProperties,
+}));
+
+const DataImportArgs = TypeNameModule.result(a.object({
+  type: a.ref('TypeName').describe('Type name to import into'),
+  glob: a.string().describe('Glob pattern for files to import (e.g., "data/*.csv", "**/*.txt")'),
+  transcribeImages: a.boolean().optional().describe('Extract text from images in documents (default: false)'),
+  ...globalToolProperties,
+}));
+
+const DataSearchArgs = TypeNameModule.result(a.object({
+  type: a.ref('TypeName').describe('Type name to search'),
+  query: a.string().describe('Search query text'),
+  n: a.number().optional().describe('Maximum results (default: 10)'),
+  ...globalToolProperties,
+}));
+
+const DataGetArgs = TypeNameModule.result(a.object({
+  type: a.ref('TypeName').describe('Type name to retrieve records from'),
+  offset: a.number().optional().describe('Number of records to skip (default: 0)'),
+  limit: a.number().optional().describe('Maximum records to return (default: 10)'),
+  ...globalToolProperties,
+}));
+
+/**
+ * The query tool's arguments: the query grammar for the configured types, or
+ * (over `maxQuerySchemaTypes` types) a description of the query to build.
+ */
+const QueryToolArgs = DBAGrammar
+  .declare<{ QueryArg: Query | string }>()
+  .dynamic((ctx: TypesContext) => {
+    const data = ctx.config.getData();
+    const asString = shouldUseStringSchema(data.types, data.user.maxQuerySchemaTypes ?? 5);
+    return {
+      ...dbaTypeDefs(asString ? [] : data.types),
+      QueryArg: (asString
+        ? a.string().describe(QUERY_STRING_DOC)
+        : a.ref('Query').describe('The query to execute as a structured Query object')) as SchemaOf<Query | string>,
+    };
+  }, {
+    key: (ctx) => {
+      const data = ctx.config.getData();
+      return `${data.user.maxQuerySchemaTypes ?? 5}:${typesKey(data.types)}`;
+    },
+  })
+  .result(a.object({
+    query: a.ref('QueryArg'),
+    ...globalToolProperties,
+  }));
 
 /**
  * Create static DBA tools.
@@ -28,10 +85,7 @@ Example: Index all records of a type:
 { "type": "task" }
  
 {{modeInstructions}}`,
-    schema: ({ config }) => z.object({
-      type: z.enum(config.getData().types.map(t => t.name) as [string, ...string[]]).describe('Type name to index'),
-      ...globalToolProperties,
-    }),
+    schema: DataIndexArgs,
     input: getOperationInput('data_index'),
     applicable: ({ config }) => config.getData().types.length > 0,
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'data_index', input }, ctx as unknown as CletusAIContext),
@@ -54,12 +108,7 @@ Example: Import with image text extraction:
 { "type": "document", "glob": "documents/**/*.pdf", "transcribeImages": true }
  
 {{modeInstructions}}`,
-    schema: ({ config }) => z.object({
-      type: z.enum(config.getData().types.map(t => t.name) as [string, ...string[]]).describe('Type name to import into'),
-      glob: z.string().describe('Glob pattern for files to import (e.g., "data/*.csv", "**/*.txt")'),
-      transcribeImages: z.boolean().optional().describe('Extract text from images in documents (default: false)'),
-      ...globalToolProperties,
-    }),
+    schema: DataImportArgs,
     input: getOperationInput('data_import'),
     applicable: ({ config }) => config.getData().types.length > 0,
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'data_import', input }, ctx as unknown as CletusAIContext),
@@ -74,12 +123,7 @@ Example: Search for relevant records:
 { "type": "task", "query": "user preferences for notifications", "n": 5 }
  
 {{modeInstructions}}`,
-    schema: ({ config }) => z.object({
-      type: z.enum(config.getData().types.map(t => t.name) as [string, ...string[]]).describe('Type name to search'),
-      query: z.string().describe('Search query text'),
-      n: z.number().optional().describe('Maximum results (default: 10)'),
-      ...globalToolProperties,
-    }),
+    schema: DataSearchArgs,
     input: getOperationInput('data_search'),
     applicable: ({ config }) => config.getData().types.length > 0,
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'data_search', input }, ctx as unknown as CletusAIContext),
@@ -99,12 +143,7 @@ Example: Get records 20-30:
 { "type": "task", "offset": 20, "limit": 10 }
 
 {{modeInstructions}}`,
-    schema: ({ config }) => z.object({
-      type: z.enum(config.getData().types.map(t => t.name) as [string, ...string[]]).describe('Type name to retrieve records from'),
-      offset: z.number().optional().describe('Number of records to skip (default: 0)'),
-      limit: z.number().optional().describe('Maximum records to return (default: 10)'),
-      ...globalToolProperties,
-    }),
+    schema: DataGetArgs,
     input: getOperationInput('data_get'),
     applicable: ({ config }) => config.getData().types.length > 0,
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'data_get', input }, ctx as unknown as CletusAIContext),
@@ -132,20 +171,7 @@ Examples
 {{queryFormat}}
 
 {{modeInstructions}}`,
-    schema: ({ config }) => {
-      const types = config.getData().types;
-      const maxQuerySchemaTypes = config.getData().user.maxQuerySchemaTypes ?? 5;
-      const useStringSchema = shouldUseStringSchema(types, maxQuerySchemaTypes);
-
-      return z.object({
-        ...(useStringSchema ? {
-          query: z.string().describe('A detailed description of the query to execute. Must be a comprehensive description of the query to perform (selects, inserts, updates, deletes, and ctes are supported - all major Postgres expressions). Must include which types are involved, any filter conditions, known record IDs if applicable, and the precise outcome desired. Be specific and details. Do not provide a SQL looking query - you do not have enough type information to do so. You can include SQL like logic at the end if its the best way to describe complex logic that is needed.'),
-        } : {
-          query: createDBASchemas(types).QuerySchema.describe('The query to execute as a structured Query object'),
-        }),
-        ...globalToolProperties,
-      });
-    },
+    schema: QueryToolArgs,
     input: (ctx) => {
       const types = ctx.config.getData().types;
       const maxQuerySchemaTypes = ctx.config.getData().user.maxQuerySchemaTypes ?? 5;

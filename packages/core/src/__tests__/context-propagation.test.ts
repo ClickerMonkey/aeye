@@ -5,7 +5,7 @@
  * and that modifications to context are visible to child components.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Agent } from '../agent';
 import { Tool } from '../tool';
 import { Prompt } from '../prompt';
@@ -21,7 +21,7 @@ describe('Context Propagation', () => {
         name: 'contextReader',
         description: 'Reads context',
         instructions: 'Read context',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx) => {
           receivedContext = ctx;
           return 'success';
@@ -48,7 +48,7 @@ describe('Context Propagation', () => {
         name: 'inner',
         description: 'Inner tool',
         instructions: 'Inner',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx: Context<{ counter: number }, {}>) => {
           executionLog.push(`inner:${ctx.counter}`);
           return ctx.counter;
@@ -60,7 +60,7 @@ describe('Context Propagation', () => {
         name: 'outer',
         description: 'Outer tool',
         instructions: 'Outer',
-        schema: z.object({}),
+        schema: a.object({}),
         refs: [innerTool],
         call: (input, [inner], ctx: Context<{ counter: number }, {}>) => {
           executionLog.push(`outer:${ctx.counter}`);
@@ -165,7 +165,7 @@ describe('Context Propagation', () => {
         name: 'leafTool',
         description: 'Leaf tool',
         instructions: 'Leaf',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx: Context<{ depth: number; path: string }, {}>) => {
           const newPath = `${ctx.path}/tool`;
           executionLog.push(`tool:depth=${ctx.depth},path=${newPath}`);
@@ -258,7 +258,7 @@ describe('Context Propagation', () => {
         name: 'logger',
         description: 'Logger',
         instructions: 'Log value',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx: Context<{ value: number }, {}>) => {
           executionLog.push(`tool:${ctx.value}`);
           return ctx.value * 2;
@@ -312,7 +312,7 @@ describe('Context Propagation', () => {
         name: 'counter',
         description: 'Counter',
         instructions: 'Count',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx: Context<{ count: number }, {}>) => {
           executionLog.push(`tool:count=${ctx.count}`);
           return `Count: ${ctx.count}`;
@@ -382,7 +382,7 @@ describe('Context Propagation', () => {
         name: 'tool1',
         description: 'Tool 1',
         instructions: 'Tool 1',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx: Context<{ value: string }, {}>) => {
           executionLog.push(`tool1:${ctx.value}`);
           return ctx.value;
@@ -393,7 +393,7 @@ describe('Context Propagation', () => {
         name: 'tool2',
         description: 'Tool 2',
         instructions: 'Tool 2',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx: Context<{ value: string }, {}>) => {
           executionLog.push(`tool2:${ctx.value}`);
           return ctx.value;
@@ -537,7 +537,7 @@ describe('Context Propagation', () => {
         name: 'messageCounter',
         description: 'Count messages',
         instructions: 'Count',
-        schema: z.object({}),
+        schema: a.object({}),
         call: (input, refs, ctx) => {
           messagesLog.push(ctx.messages?.length || 0);
           return ctx.messages?.length || 0;

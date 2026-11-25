@@ -1,4 +1,4 @@
-import z from "zod";
+import { a, type AnySchema, type SchemaOf } from '@aeye/schema';
 import type { TypeDefinition, TypeField } from '../schemas';
 
 /**
@@ -203,435 +203,302 @@ export type CTEStatement = {
 
 export type Query = Statement | CTEStatement;
 
-// Schema factory function that generates schemas based on type definitions
-export function createDBASchemas(types: TypeDefinition[]) {
-  // Generate table enum from type definitions
-  const tableNames = types.map(t => t.name);
-  const tableDescriptions = types.map(t =>
-    `${t.friendlyName} (${t.name})` + (t.description ? `: ${t.description}` : '')
-  ).join('; ');
+/// ============================================================================
+// Schemas: the query grammar, ONE static module. The type-independent grammar
+// is defined once; the type-dependent names (Table, SourceColumn, Insert,
+// Update, Delete) are declared with their code types and supplied per call
+// from the type definitions (cached by their content).
+// ============================================================================
 
-  const TableSchema: z.ZodType<Table> = tableNames.length > 0
-    ? z.enum(tableNames as [string, ...string[]]).meta({ aid: 'Table' }).describe(`Database table. Tables: ${tableDescriptions}`)
-    : z.string().meta({ aid: 'Table' }).describe('Database table name');
+/**
+ * A key for caching schemas built from type definitions. The config edits its
+ * types in place, so the key is their content, not the array.
+ */
+export function typesKey(types: ReadonlyArray<TypeDefinition>): string {
+  return JSON.stringify(types);
+}
 
-  // Basic type schemas
-  const SourceSchema: z.ZodType<Source> = z.string().meta({ aid: 'Source' }).describe('Table name, alias, or CTE name');
-  const ColumnSchema: z.ZodType<Column> = z.string().meta({ aid: 'Column' }).describe('Column name');
-  const AliasSchema: z.ZodType<Alias> = z.string().meta({ aid: 'Alias' }).describe('Alias for a value in SELECT or RETURNING clause');
+const ALIAS_DOC = 'Table alias - should only be specified when it needs be disambiguated from another source of the same name';
 
-  const SourceColumnSchema: z.ZodType<SourceColumn> = z.union([
-    ...types.map(t => {
-      const fieldDescriptions = generateAllFieldDescriptions(t, 'select');
-
-      return z.object({
-        source: z.literal(t.name),
-        column: z.enum(['id', 'created', 'updated', ...t.fields.map(f => f.name), '*'] as [string, ...string[]]).describe(`Column from ${t.name} (${t.friendlyName}). Use '*' to select all columns. Fields: ${fieldDescriptions}`),
-      }).describe(`Reference to a column from ${t.friendlyName} table (${t.name})`);
-    }),
-    z.object({
-      source: SourceSchema.describe('Alias or CTE name'),
-      column: z.union([ColumnSchema, z.literal('*')]).describe('Column name from the source, or "*" to select all columns'),
-    }).describe('Reference to a column from a CTE, aliased table/subquery'),
-  ]).meta({ aid: 'SourceColumn' }).describe('Reference to a column from a specific source. Use column: "*" to select all columns from that source.')
-
-  const ConstantSchema: z.ZodType<Constant> = z.union([
-    z.number(),
-    z.string(),
-    z.boolean(),
-    z.null()
-  ]).meta({ aid: 'Constant' }).describe('Constant value: number, string, boolean, or null');
-
-  const AggregateSchema: z.ZodType<Aggregate> = z.enum(['count', 'min', 'max', 'avg', 'sum']).meta({ aid: 'Aggregate' }).describe('Aggregate function');
-  const BinarySchema: z.ZodType<Binary> = z.enum(['+', '-', '*', '/']).meta({ aid: 'Binary' }).describe('Binary operator');
-  const UnarySchema: z.ZodType<Unary> = z.enum(['-']).meta({ aid: 'Unary' }).describe('Unary operator');
-  const ComparisonSchema: z.ZodType<Comparison> = z.enum(['=', '<', '>', '<=', '>=', '<>', 'like', 'notLike']).meta({ aid: 'Comparison' }).describe('Comparison operator');
-
-  const FunctionSchema: z.ZodType<Function> = z.enum([
+/**
+ * The query grammar's named types; Table, SourceColumn, Insert, Update and
+ * Delete are supplied by `dbaTypeDefs(types)`.
+ */
+export const DBAGrammar = a.define({
+  // dba.ts:221-223
+  Source: a.string().describe('Table name, alias, or CTE name'),
+  Column: a.string().describe('Column name'),
+  Alias: a.string().describe('Alias for a value in SELECT or RETURNING clause'),
+  // dba.ts:240
+  Constant: a.union([a.number(), a.string(), a.boolean(), a.null()]).describe('Constant value: number, string, boolean, or null'),
+  // dba.ts:247-257
+  Aggregate: a.enum(['count', 'min', 'max', 'avg', 'sum']).describe('Aggregate function'),
+  Binary: a.enum(['+', '-', '*', '/']).describe('Binary operator'),
+  Unary: a.enum(['-']).describe('Unary operator'),
+  Comparison: a.enum(['=', '<', '>', '<=', '>=', '<>', 'like', 'notLike']).describe('Comparison operator'),
+  Function: a.enum([
     'concat', 'substring', 'length', 'lower', 'upper', 'trim', 'replace',
     'abs', 'ceil', 'floor', 'round', 'power', 'sqrt',
     'now', 'current_date', 'date_add', 'date_sub', 'extract', 'date_trunc',
-    'coalesce', 'nullif', 'greatest', 'least'
-  ]).meta({ aid: 'Function' }).describe('Built-in SQL function');
-
-  // Forward declarations for recursive types
-  const ValueSchema: z.ZodType<Value> = z.lazy(() => z.union([
-    SourceColumnSchema,
-    ConstantSchema,
-    SelectSchema,
-    BooleanValueSchema,
-    FunctionCallSchema,
-    WindowValueSchema,
-    z.object({
-      kind: z.literal('binary'),
-      left: ValueSchema.describe('Left operand'),
-      op: BinarySchema.describe('Binary operator'),
-      right: ValueSchema.describe('Right operand')
+    'coalesce', 'nullif', 'greatest', 'least',
+  ]).describe('Built-in SQL function'),
+  // dba.ts:260
+  Value: a.union([
+    a.ref('SourceColumn'),
+    a.ref('Constant'),
+    a.ref('Select'),
+    a.ref('BooleanValue'),
+    a.ref('FunctionCall'),
+    a.ref('WindowValue'),
+    a.object({
+      kind: a.literal('binary'),
+      left: a.ref('Value').describe('Left operand'),
+      op: a.ref('Binary').describe('Binary operator'),
+      right: a.ref('Value').describe('Right operand'),
     }).describe('Binary operation'),
-    z.object({
-      kind: z.literal('unary'),
-      unary: UnarySchema.describe('Unary operator'),
-      value: ValueSchema.describe('Operand value')
+    a.object({
+      kind: a.literal('unary'),
+      unary: a.ref('Unary').describe('Unary operator'),
+      value: a.ref('Value').describe('Operand value'),
     }).describe('Unary operation'),
-    z.object({
-      kind: z.literal('aggregate'),
-      aggregate: AggregateSchema.describe('Aggregate function'),
-      value: z.union([ValueSchema, z.literal('*')]).describe('Value to aggregate')
+    a.object({
+      kind: a.literal('aggregate'),
+      aggregate: a.ref('Aggregate').describe('Aggregate function'),
+      value: a.union([a.ref('Value'), a.literal('*')]).describe('Value to aggregate'),
     }).describe('Aggregate operation'),
-    z.object({
-      kind: z.literal('semanticSimilarity'),
-      table: TableSchema.describe('Table to compare against using semantic similarity'),
-      query: z.string().describe('User query to compare for semantic similarity'),
+    a.object({
+      kind: a.literal('semanticSimilarity'),
+      table: a.ref('Table').describe('Table to compare against using semantic similarity'),
+      query: a.string().describe('User query to compare for semantic similarity'),
     }).describe('Semantic similarity search'),
-    z.object({
-      kind: z.literal('case'),
-      case: z.array(z.object({
-        when: BooleanValueSchema.describe('Condition'),
-        then: ValueSchema.describe('Result value when condition is true')
+    a.object({
+      kind: a.literal('case'),
+      case: a.array(a.object({
+        when: a.ref('BooleanValue').describe('Condition'),
+        then: a.ref('Value').describe('Result value when condition is true'),
       })).describe('CASE branches'),
-      else: ValueSchema.nullable().optional().describe('Default value when no conditions match')
-    }).describe('CASE expression')
-  ])).meta({ aid: 'Value' }).describe('SQL value expression');
+      else: a.ref('Value').nullable().optional().describe('Default value when no conditions match'),
+    }).describe('CASE expression'),
+  ]).describe('SQL value expression'),
+  // dba.ts:298
+  BooleanValue: a.union([
+    a.object({ kind: a.literal('comparison'), left: a.ref('Value').describe('Left operand'), cmp: a.ref('Comparison').describe('Comparison operator'), right: a.ref('Value').describe('Right operand') }).describe('Comparison expression'),
+    a.object({ kind: a.literal('in'), value: a.ref('Value').describe('Value to test'), in: a.union([a.array(a.ref('Value')), a.ref('SelectOrSet')]).describe('List of values or subquery') }).describe('IN predicate'),
+    a.object({ kind: a.literal('between'), value: a.ref('Value').describe('Value to test'), between: a.tuple([a.ref('Value'), a.ref('Value')]).describe('Range bounds [min, max]') }).describe('BETWEEN predicate'),
+    a.object({ kind: a.literal('isNull'), isNull: a.ref('Value').describe('Value to test for NULL. Should not be a constant, should be a column or expression.') }).describe('IS NULL predicate'),
+    a.object({ kind: a.literal('exists'), exists: a.ref('SelectOrSet').describe('Subquery to test for existence') }).describe('EXISTS predicate'),
+    a.object({ kind: a.literal('and'), and: a.array(a.ref('BooleanValue')).describe('Boolean expressions to AND together') }).describe('AND expression'),
+    a.object({ kind: a.literal('or'), or: a.array(a.ref('BooleanValue')).describe('Boolean expressions to OR together') }).describe('OR expression'),
+    a.object({ kind: a.literal('not'), not: a.ref('BooleanValue').describe('Boolean expression to negate') }).describe('NOT expression'),
+  ]).describe('Boolean expression'),
+  // dba.ts:337
+  FunctionCall: a.object({
+    kind: a.literal('function'),
+    function: a.ref('Function').describe('Function name'),
+    args: a.array(a.ref('Value')).describe('Function arguments'),
+  }).describe('Function call'),
+  // dba.ts:343
+  Sort: a.object({ value: a.ref('Value').describe('Value to sort by'), dir: a.enum(['asc', 'desc']).describe('Sort direction') }).describe('Sort specification'),
+  // dba.ts:348
+  WindowValue: a.object({
+    kind: a.literal('window'),
+    function: a.union([a.ref('Aggregate'), a.string()]).describe('Window function name'),
+    value: a.ref('Value').describe('Value to compute over'),
+    partitionBy: a.array(a.ref('Value')).nullable().optional().describe('PARTITION BY expressions'),
+    orderBy: a.array(a.ref('Sort')).nullable().optional().describe('ORDER BY specifications'),
+  }).describe('Window function'),
+  // dba.ts:356 / 361
+  AliasValue: a.object({ alias: a.ref('Alias').describe('Alias name'), value: a.ref('Value').describe('Value expression') }).describe('Aliased value for SELECT or RETURNING'),
+  ColumnValue: a.object({ column: a.ref('Column').describe('Column name'), value: a.ref('Value').describe('Value to assign') }).describe('Column assignment for INSERT or UPDATE'),
+  // dba.ts:367
+  SelectOrSet: a.union([a.ref('Select'), a.ref('SetOperation')]).describe('SELECT query or set operation'),
+  // dba.ts:372
+  DataSource: a.union([
+    a.object({ kind: a.literal('table'), table: a.ref('Table').describe('Table name') }).describe('Table data source'),
+    a.object({ kind: a.literal('aliased'), table: a.ref('Table').describe('Table name'), as: a.string().describe('Alias') }).describe('Table data source when an alias is required'),
+    a.object({ kind: a.literal('subquery'), subquery: a.ref('SelectOrSet').describe('Subquery'), as: a.string().describe('Alias') }).describe('Subquery data source'),
+  ]).describe('Data source for FROM clause'),
+  // dba.ts:389
+  Join: a.object({
+    source: a.ref('DataSource').describe('Data source to join'),
+    type: a.enum(['inner', 'left', 'right', 'full']).describe('Join type'),
+    on: a.array(a.ref('BooleanValue')).describe('Join conditions (ANDed together)'),
+  }).describe('JOIN specification'),
+  // dba.ts:395
+  Select: a.object({
+    kind: a.literal('select'),
+    distinct: a.boolean().nullable().optional().describe('Whether to return distinct rows, use false by default true if required to satisfy requirements'),
+    values: a.array(a.ref('AliasValue')).describe('Values to select'),
+    from: a.ref('DataSource').nullable().optional().describe('FROM data source'),
+    joins: a.array(a.ref('Join')).nullable().optional().describe('JOIN clauses'),
+    where: a.array(a.ref('BooleanValue')).nullable().optional().describe('WHERE conditions (ANDed together)'),
+    groupBy: a.array(a.ref('Value')).nullable().optional().describe('GROUP BY expressions'),
+    having: a.array(a.ref('BooleanValue')).nullable().optional().describe('HAVING conditions (ANDed together)'),
+    orderBy: a.array(a.ref('Sort')).nullable().optional().describe('ORDER BY specifications'),
+    offset: a.number().nullable().optional().describe('Number of rows to skip'),
+    limit: a.number().nullable().optional().describe('Maximum number of rows to return'),
+  }).describe('SELECT statement'),
+  // dba.ts:533
+  SetOperation: a.object({
+    kind: a.enum(['union', 'intersect', 'except']).describe('Set operation type'),
+    left: a.ref('Select').describe('Left SELECT query'),
+    right: a.ref('Select').describe('Right SELECT query'),
+    all: a.boolean().nullable().optional().describe('Whether to include duplicates (ALL)'),
+  }).describe('Set operation (UNION, INTERSECT, EXCEPT)'),
+  // dba.ts:540
+  Statement: a.union([a.ref('Insert'), a.ref('Update'), a.ref('Select'), a.ref('Delete'), a.ref('SetOperation')]).describe('SQL statement'),
+  // dba.ts:548
+  WithStatement: a.union([
+    a.object({ kind: a.literal('cte'), name: a.string().describe('CTE name'), statement: a.ref('Statement').describe('CTE statement') }).describe('Simple CTE'),
+    a.object({
+      kind: a.literal('cte-recursive'),
+      name: a.string().describe('CTE name'),
+      statement: a.ref('Select').describe('Initial SELECT for recursive CTE'),
+      recursiveStatement: a.ref('Select').describe('Recursive SELECT'),
+    }).describe('Recursive CTE'),
+  ]).describe('WITH statement (CTE)'),
+  // dba.ts:562
+  CTEStatement: a.object({
+    kind: a.literal('withs'),
+    withs: a.array(a.ref('WithStatement')).describe('CTE definitions'),
+    final: a.ref('Statement').describe('Final statement that uses the CTEs'),
+  }).describe('Statement with CTEs'),
+  // dba.ts:568
+  Query: a.union([a.ref('Statement'), a.ref('CTEStatement')]).describe('Complete SQL query'),
+}).declare<{ Table: Table; SourceColumn: SourceColumn; Insert: Insert; Update: Update; Delete: Delete }>();
+type Dyn = {
+  Table: SchemaOf<Table>;
+  SourceColumn: SchemaOf<SourceColumn>;
+  Insert: SchemaOf<Insert>;
+  Update: SchemaOf<Update>;
+  Delete: SchemaOf<Delete>;
+};
 
-  const BooleanValueSchema: z.ZodType<BooleanValue> = z.lazy(() => z.union([
-    z.object({
-      kind: z.literal('comparison'),
-      left: ValueSchema.describe('Left operand'),
-      cmp: ComparisonSchema.describe('Comparison operator'),
-      right: ValueSchema.describe('Right operand')
-    }).describe('Comparison expression'),
-    z.object({
-      kind: z.literal('in'),
-      value: ValueSchema.describe('Value to test'),
-      in: z.union([z.array(ValueSchema), SelectOrSetSchema]).describe('List of values or subquery')
-    }).describe('IN predicate'),
-    z.object({
-      kind: z.literal('between'),
-      value: ValueSchema.describe('Value to test'),
-      between: z.tuple([ValueSchema, ValueSchema]).describe('Range bounds [min, max]')
-    }).describe('BETWEEN predicate'),
-    z.object({
-      kind: z.literal('isNull'),
-      isNull: ValueSchema.describe('Value to test for NULL. Should not be a constant, should be a column or expression.')
-    }).describe('IS NULL predicate'),
-    z.object({
-      kind: z.literal('exists'),
-      exists: SelectOrSetSchema.describe('Subquery to test for existence')
-    }).describe('EXISTS predicate'),
-    z.object({
-      kind: z.literal('and'),
-      and: z.array(BooleanValueSchema).describe('Boolean expressions to AND together')
-    }).describe('AND expression'),
-    z.object({
-      kind: z.literal('or'),
-      or: z.array(BooleanValueSchema).describe('Boolean expressions to OR together')
-    }).describe('OR expression'),
-    z.object({
-      kind: z.literal('not'),
-      not: BooleanValueSchema.describe('Boolean expression to negate')
-    }).describe('NOT expression')
-  ])).meta({ aid: 'BooleanValue' }).describe('Boolean expression');
+const many = <T>(xs: AnySchema[], one: () => AnySchema): SchemaOf<T> =>
+  (xs.length >= 2 ? a.union(xs as [AnySchema, ...AnySchema[]]) : xs[0] ?? one()) as SchemaOf<T>;
 
-  const FunctionCallSchema: z.ZodType<FunctionCall> = z.object({
-    kind: z.literal('function'),
-    function: FunctionSchema.describe('Function name'),
-    args: z.array(ValueSchema).describe('Function arguments'),
-  }).meta({ aid: 'FunctionCall' }).describe('Function call');
+/**
+ * The type-dependent named types of the query grammar for the given types.
+ */
+export function dbaTypeDefs(types: TypeDefinition[]): Dyn {
+  const tableNames = types.map((t) => t.name);
+  const tableDescriptions = types.map((t) => `${t.friendlyName} (${t.name})` + (t.description ? `: ${t.description}` : '')).join('; ');
+  // dba.ts:216
+  const Table = tableNames.length > 0
+    ? a.enum(tableNames as [string, ...string[]]).describe(`Database table. Tables: ${tableDescriptions}`)
+    : a.string().describe('Database table name');
+  // dba.ts:225
+  const SourceColumn = a.union([
+    ...types.map((t) => a.object({
+      source: a.literal(t.name),
+      column: a.enum(['id', 'created', 'updated', ...t.fields.map((f) => f.name), '*'] as [string, ...string[]])
+        .describe(`Column from ${t.name} (${t.friendlyName}). Use '*' to select all columns. Fields: ${generateAllFieldDescriptions(t, 'select')}`),
+    }).describe(`Reference to a column from ${t.friendlyName} table (${t.name})`)),
+    a.object({
+      source: a.ref('Source').describe('Alias or CTE name'),
+      column: a.union([a.ref('Column'), a.literal('*')]).describe('Column name from the source, or "*" to select all columns'),
+    }).describe('Reference to a column from a CTE, aliased table/subquery'),
+  ] as unknown as [AnySchema, ...AnySchema[]]).describe('Reference to a column from a specific source. Use column: "*" to select all columns from that source.') as SchemaOf<SourceColumn>;
 
-  const SortSchema: z.ZodType<Sort> = z.object({
-    value: ValueSchema.describe('Value to sort by'),
-    dir: z.enum(['asc', 'desc']).describe('Sort direction')
-  }).meta({ aid: 'Sort' }).describe('Sort specification');
-
-  const WindowValueSchema: z.ZodType<WindowValue> = z.object({
-    kind: z.literal('window'),
-    function: z.union([AggregateSchema, z.string()]).describe('Window function name'),
-    value: ValueSchema.describe('Value to compute over'),
-    partitionBy: z.array(ValueSchema).nullable().optional().describe('PARTITION BY expressions'),
-    orderBy: z.array(SortSchema).nullable().optional().describe('ORDER BY specifications'),
-  }).meta({ aid: 'WindowValue' }).describe('Window function');
-
-  const AliasValueSchema: z.ZodType<AliasValue> = z.object({
-    alias: AliasSchema.describe('Alias name'),
-    value: ValueSchema.describe('Value expression'),
-  }).meta({ aid: 'AliasValue' }).describe('Aliased value for SELECT or RETURNING');
-
-  const ColumnValueSchema: z.ZodType<ColumnValue> = z.object({
-    column: ColumnSchema.describe('Column name'),
-    value: ValueSchema.describe('Value to assign'),
-  }).meta({ aid: 'ColumnValue' }).describe('Column assignment for INSERT or UPDATE');
-
-  // Forward declaration for SelectOrSet
-  const SelectOrSetSchema: z.ZodType<SelectOrSet> = z.lazy(() => z.union([
-    SelectSchema,
-    SetOperationSchema
-  ])).meta({ aid: 'SelectOrSet' }).describe('SELECT query or set operation');
-
-  const DataSourceSchema: z.ZodType<DataSource> = z.lazy(() => z.union([
-    z.object({
-      kind: z.literal('table'),
-      table: TableSchema.describe('Table name'),
-    }).describe('Table data source'),
-    z.object({
-      kind: z.literal('aliased'),
-      table: TableSchema.describe('Table name'),
-      as: z.string().describe('Alias'),
-    }).describe('Table data source when an alias is required'),
-    z.object({
-      kind: z.literal('subquery'),
-      subquery: SelectOrSetSchema.describe('Subquery'),
-      as: z.string().describe('Alias'),
-    }).describe('Subquery data source')
-  ])).meta({ aid: 'DataSource' }).describe('Data source for FROM clause');
-
-  const JoinSchema: z.ZodType<Join> = z.object({
-    source: DataSourceSchema.describe('Data source to join'),
-    type: z.enum(['inner', 'left', 'right', 'full']).describe('Join type'),
-    on: z.array(BooleanValueSchema).describe('Join conditions (ANDed together)'),
-  }).meta({ aid: 'Join' }).describe('JOIN specification');
-
-  const SelectSchema: z.ZodType<Select> = z.lazy(() => z.object({
-    kind: z.literal('select'),
-    distinct: z.boolean().nullable().optional().describe('Whether to return distinct rows, use false by default true if required to satisfy requirements'),
-    values: z.array(AliasValueSchema).describe('Values to select'),
-    from: DataSourceSchema.nullable().optional().describe('FROM data source'),
-    joins: z.array(JoinSchema).nullable().optional().describe('JOIN clauses'),
-    where: z.array(BooleanValueSchema).nullable().optional().describe('WHERE conditions (ANDed together)'),
-    groupBy: z.array(ValueSchema).nullable().optional().describe('GROUP BY expressions'),
-    having: z.array(BooleanValueSchema).nullable().optional().describe('HAVING conditions (ANDed together)'),
-    orderBy: z.array(SortSchema).nullable().optional().describe('ORDER BY specifications'),
-    offset: z.number().nullable().optional().describe('Number of rows to skip'),
-    limit: z.number().nullable().optional().describe('Maximum number of rows to return'),
-  })).meta({ aid: 'Select' }).describe('SELECT statement');
-
-  // Filter types that have at least one field for typed schemas
-  const typesWithFields = types.filter(t => t.fields.length > 0);
-
-  // Create typed insert schemas for each table type with fields
-  const typedInsertSchemas: z.ZodType<Insert>[] = typesWithFields.map(t => {
-    const fieldDescriptions = generateAllFieldDescriptions(t, 'insert');
-
-    const columnNames = ['id', 'created', 'updated', ...t.fields.map(f => f.name)] as [string, ...string[]];
-    const TypedColumnSchema = z.enum(columnNames).meta({ aid: `${t.name}_Column` }).describe(`Column from ${t.name} (${t.friendlyName}). Fields: ${fieldDescriptions}`);
-    const TypedColumnValueSchema = z.object({
-      column: TypedColumnSchema.describe('Column name'),
-      value: ValueSchema.describe('Value to assign'),
-    }).meta({ aid: `${t.name}_ColumnValue` }).describe(`Column assignment for ${t.name} (${t.friendlyName})`);
-    
-    return z.object({
-      kind: z.literal('insert'),
-      table: z.literal(t.name).describe(`Insert into ${t.name} table`),
-      as: z.string().nullable().optional().describe('Table alias - should only be specified when it needs be disambiguated from another source of the same name'),
-      columns: z.array(TypedColumnSchema).describe(`Columns to insert into ${t.name}`),
-      values: z.array(ValueSchema).nullable().optional().describe('Values to insert (mutually exclusive with select)'),
-      select: SelectOrSetSchema.nullable().optional().describe('SELECT query for values (mutually exclusive with values)'),
-      returning: z.array(AliasValueSchema).nullable().optional().describe('RETURNING clause'),
-      onConflict: z.object({
-        columns: z.array(TypedColumnSchema).describe('Conflict target columns'),
-        doNothing: z.boolean().nullable().optional().describe('Whether to do nothing on conflict'),
-        update: z.array(TypedColumnValueSchema).nullable().optional().describe('Column updates on conflict'),
+  const typesWithFields = types.filter((t) => t.fields.length > 0);
+  const typedColumns = (t: TypeDefinition, context: 'insert' | 'update') => {
+    const Col = a.enum(['id', 'created', 'updated', ...t.fields.map((f) => f.name)] as [string, ...string[]])
+      .describe(`Column from ${t.name} (${t.friendlyName}). Fields: ${generateAllFieldDescriptions(t, context)}`);
+    const ColVal = a.object({ column: Col.describe('Column name'), value: a.ref('Value').describe('Value to assign') })
+      .describe(`Column assignment for ${t.name} (${t.friendlyName})`);
+    return { Col, ColVal };
+  };
+  // dba.ts:413
+  const typedInserts = typesWithFields.map((t) => {
+    const { Col, ColVal } = typedColumns(t, 'insert');
+    return a.object({
+      kind: a.literal('insert'),
+      table: a.literal(t.name).describe(`Insert into ${t.name} table`),
+      as: a.string().nullable().optional().describe(ALIAS_DOC),
+      columns: a.array(Col).describe(`Columns to insert into ${t.name}`),
+      values: a.array(a.ref('Value')).nullable().optional().describe('Values to insert (mutually exclusive with select)'),
+      select: a.ref('SelectOrSet').nullable().optional().describe('SELECT query for values (mutually exclusive with values)'),
+      returning: a.array(a.ref('AliasValue')).nullable().optional().describe('RETURNING clause'),
+      onConflict: a.object({
+        columns: a.array(Col).describe('Conflict target columns'),
+        doNothing: a.boolean().nullable().optional().describe('Whether to do nothing on conflict'),
+        update: a.array(ColVal).nullable().optional().describe('Column updates on conflict'),
       }).nullable().optional().describe('ON CONFLICT clause'),
-    }).meta({ aid: `Insert_${t.name}` }).describe(`INSERT statement for ${t.name}`);
+    }).describe(`INSERT statement for ${t.name}`);
   });
-
-  // Generic insert schema for when no types are defined
-  const genericInsertSchema = z.object({
-    kind: z.literal('insert'),
-    table: TableSchema.describe('Target table'),
-    as: z.string().nullable().optional().describe('Table alias - should only be specified when it needs be disambiguated from another source of the same name'),
-    columns: z.array(ColumnSchema).describe('Columns to insert into'),
-    values: z.array(ValueSchema).nullable().optional().describe('Values to insert (mutually exclusive with select)'),
-    select: SelectOrSetSchema.nullable().optional().describe('SELECT query for values (mutually exclusive with values)'),
-    returning: z.array(AliasValueSchema).nullable().optional().describe('RETURNING clause'),
-    onConflict: z.object({
-      columns: z.array(ColumnSchema).describe('Conflict target columns'),
-      doNothing: z.boolean().nullable().optional().describe('Whether to do nothing on conflict'),
-      update: z.array(ColumnValueSchema).nullable().optional().describe('Column updates on conflict'),
+  // dba.ts:440
+  const genericInsert = () => a.object({
+    kind: a.literal('insert'),
+    table: a.ref('Table').describe('Target table'),
+    as: a.string().nullable().optional().describe(ALIAS_DOC),
+    columns: a.array(a.ref('Column')).describe('Columns to insert into'),
+    values: a.array(a.ref('Value')).nullable().optional().describe('Values to insert (mutually exclusive with select)'),
+    select: a.ref('SelectOrSet').nullable().optional().describe('SELECT query for values (mutually exclusive with values)'),
+    returning: a.array(a.ref('AliasValue')).nullable().optional().describe('RETURNING clause'),
+    onConflict: a.object({
+      columns: a.array(a.ref('Column')).describe('Conflict target columns'),
+      doNothing: a.boolean().nullable().optional().describe('Whether to do nothing on conflict'),
+      update: a.array(a.ref('ColumnValue')).nullable().optional().describe('Column updates on conflict'),
     }).nullable().optional().describe('ON CONFLICT clause'),
-  }).meta({ aid: 'Insert' }).describe('INSERT statement');
-  
-  // Union of typed insert schemas only (no generic fallback when types exist)
-  const InsertSchema: z.ZodType<Insert> = typedInsertSchemas.length >= 2
-    ? z.union(typedInsertSchemas as [z.ZodType<Insert>, ...z.ZodType<Insert>[]]).meta({ aid: 'Insert' }).describe('INSERT statement')
-    : typedInsertSchemas.length === 1
-      ? typedInsertSchemas[0].meta({ aid: 'Insert' }).describe('INSERT statement')
-      : genericInsertSchema;
-
-  // Create typed update schemas for each table type with fields
-  const typedUpdateSchemas: z.ZodType<Update>[] = typesWithFields.map(t => {
-    const fieldDescriptions = generateAllFieldDescriptions(t, 'update');
-
-    const columnNames = ['id', 'created', 'updated', ...t.fields.map(f => f.name)] as [string, ...string[]];
-    const TypedColumnSchema = z.enum(columnNames).meta({ aid: `${t.name}_Column` }).describe(`Column from ${t.name} (${t.friendlyName}). Fields: ${fieldDescriptions}`);
-    const TypedColumnValueSchema = z.object({
-      column: TypedColumnSchema.describe('Column name'),
-      value: ValueSchema.describe('Value to assign'),
-    }).meta({ aid: `${t.name}_ColumnValue` }).describe(`Column assignment for ${t.name} (${t.friendlyName})`);
-    
-    return z.object({
-      kind: z.literal('update'),
-      set: z.array(TypedColumnValueSchema).describe(`Column assignments for ${t.name}`),
-      table: z.literal(t.name).describe(`Update ${t.name} table`),
-      as: z.string().nullable().optional().describe('Table alias - should only be specified when it needs be disambiguated from another source of the same name'),
-      from: DataSourceSchema.nullable().optional().describe('FROM data source'),
-      joins: z.array(JoinSchema).nullable().optional().describe('JOIN clauses'),
-      where: z.array(BooleanValueSchema).nullable().optional().describe('WHERE conditions (ANDed together)'),
-      returning: z.array(AliasValueSchema).nullable().optional().describe('RETURNING clause'),
-    }).meta({ aid: `Update_${t.name}` }).describe(`UPDATE statement for ${t.name}`);
+  }).describe('INSERT statement');
+  // dba.ts:463
+  const typedUpdates = typesWithFields.map((t) => {
+    const { ColVal } = typedColumns(t, 'update');
+    return a.object({
+      kind: a.literal('update'),
+      set: a.array(ColVal).describe(`Column assignments for ${t.name}`),
+      table: a.literal(t.name).describe(`Update ${t.name} table`),
+      as: a.string().nullable().optional().describe(ALIAS_DOC),
+      from: a.ref('DataSource').nullable().optional().describe('FROM data source'),
+      joins: a.array(a.ref('Join')).nullable().optional().describe('JOIN clauses'),
+      where: a.array(a.ref('BooleanValue')).nullable().optional().describe('WHERE conditions (ANDed together)'),
+      returning: a.array(a.ref('AliasValue')).nullable().optional().describe('RETURNING clause'),
+    }).describe(`UPDATE statement for ${t.name}`);
   });
+  // dba.ts:486
+  const genericUpdate = () => a.object({
+    kind: a.literal('update'),
+    set: a.array(a.ref('ColumnValue')).describe('Column assignments'),
+    table: a.ref('Table').describe('Target table'),
+    as: a.string().nullable().optional().describe(ALIAS_DOC),
+    from: a.ref('DataSource').nullable().optional().describe('FROM data source'),
+    joins: a.array(a.ref('Join')).nullable().optional().describe('JOIN clauses'),
+    where: a.array(a.ref('BooleanValue')).nullable().optional().describe('WHERE conditions (ANDed together)'),
+    returning: a.array(a.ref('AliasValue')).nullable().optional().describe('RETURNING clause'),
+  }).describe('UPDATE statement');
+  // dba.ts:505 (every type, fields or not)
+  const typedDeletes = types.map((t) => a.object({
+    kind: a.literal('delete'),
+    table: a.literal(t.name).describe(`Delete from ${t.name} table`),
+    as: a.string().nullable().optional().describe(ALIAS_DOC),
+    joins: a.array(a.ref('Join')).nullable().optional().describe('JOIN clauses'),
+    where: a.array(a.ref('BooleanValue')).nullable().optional().describe('WHERE conditions (ANDed together)'),
+    returning: a.array(a.ref('AliasValue')).nullable().optional().describe('RETURNING clause'),
+  }).describe(`DELETE statement for ${t.name}`));
+  // dba.ts:517
+  const genericDelete = () => a.object({
+    kind: a.literal('delete'),
+    table: a.ref('Table').describe('Target table'),
+    as: a.string().nullable().optional().describe(ALIAS_DOC),
+    joins: a.array(a.ref('Join')).nullable().optional().describe('JOIN clauses'),
+    where: a.array(a.ref('BooleanValue')).nullable().optional().describe('WHERE conditions (ANDed together)'),
+    returning: a.array(a.ref('AliasValue')).nullable().optional().describe('RETURNING clause'),
+  }).describe('DELETE statement');
 
-  // Generic update schema for when no types are defined
-  const genericUpdateSchema = z.object({
-    kind: z.literal('update'),
-    set: z.array(ColumnValueSchema).describe('Column assignments'),
-    table: TableSchema.describe('Target table'),
-    as: z.string().nullable().optional().describe('Table alias - should only be specified when it needs be disambiguated from another source of the same name'),
-    from: DataSourceSchema.nullable().optional().describe('FROM data source'),
-    joins: z.array(JoinSchema).nullable().optional().describe('JOIN clauses'),
-    where: z.array(BooleanValueSchema).nullable().optional().describe('WHERE conditions (ANDed together)'),
-    returning: z.array(AliasValueSchema).nullable().optional().describe('RETURNING clause'),
-  }).meta({ aid: 'Update' }).describe('UPDATE statement');
-  
-  // Union of typed update schemas only (no generic fallback when types exist)
-  const UpdateSchema: z.ZodType<Update> = typedUpdateSchemas.length >= 2
-    ? z.union(typedUpdateSchemas as [z.ZodType<Update>, ...z.ZodType<Update>[]]).meta({ aid: 'Update' }).describe('UPDATE statement')
-    : typedUpdateSchemas.length === 1
-      ? typedUpdateSchemas[0].meta({ aid: 'Update' }).describe('UPDATE statement')
-      : genericUpdateSchema;
-
-  // Create typed delete schemas for each table type (doesn't require fields)
-  const typedDeleteSchemas: z.ZodType<Delete>[] = types.map(t => {
-    return z.object({
-      kind: z.literal('delete'),
-      table: z.literal(t.name).describe(`Delete from ${t.name} table`),
-      as: z.string().nullable().optional().describe('Table alias - should only be specified when it needs be disambiguated from another source of the same name'),
-      joins: z.array(JoinSchema).nullable().optional().describe('JOIN clauses'),
-      where: z.array(BooleanValueSchema).nullable().optional().describe('WHERE conditions (ANDed together)'),
-      returning: z.array(AliasValueSchema).nullable().optional().describe('RETURNING clause'),
-    }).meta({ aid: `Delete_${t.name}` }).describe(`DELETE statement for ${t.name}`);
-  });
-
-  // Generic delete schema for when no types are defined
-  const genericDeleteSchema = z.object({
-    kind: z.literal('delete'),
-    table: TableSchema.describe('Target table'),
-    as: z.string().nullable().optional().describe('Table alias - should only be specified when it needs be disambiguated from another source of the same name'),
-    joins: z.array(JoinSchema).nullable().optional().describe('JOIN clauses'),
-    where: z.array(BooleanValueSchema).nullable().optional().describe('WHERE conditions (ANDed together)'),
-    returning: z.array(AliasValueSchema).nullable().optional().describe('RETURNING clause'),
-  }).meta({ aid: 'Delete' }).describe('DELETE statement');
-  
-  // Union of typed delete schemas only (no generic fallback when types exist)
-  const DeleteSchema: z.ZodType<Delete> = typedDeleteSchemas.length >= 2
-    ? z.union(typedDeleteSchemas as [z.ZodType<Delete>, ...z.ZodType<Delete>[]]).meta({ aid: 'Delete' }).describe('DELETE statement')
-    : typedDeleteSchemas.length === 1
-      ? typedDeleteSchemas[0].meta({ aid: 'Delete' }).describe('DELETE statement')
-      : genericDeleteSchema;
-
-  const SetOperationSchema: z.ZodType<SetOperation> = z.lazy(() => z.object({
-    kind: z.enum(['union', 'intersect', 'except']).describe('Set operation type'),
-    left: SelectSchema.describe('Left SELECT query'),
-    right: SelectSchema.describe('Right SELECT query'),
-    all: z.boolean().nullable().optional().describe('Whether to include duplicates (ALL)'),
-  })).meta({ aid: 'SetOperation' }).describe('Set operation (UNION, INTERSECT, EXCEPT)');
-
-  const StatementSchema: z.ZodType<Statement> = z.lazy(() => z.union([
-    InsertSchema,
-    UpdateSchema,
-    SelectSchema,
-    DeleteSchema,
-    SetOperationSchema
-  ])).meta({ aid: 'Statement' }).describe('SQL statement');
-
-  const WithStatementSchema: z.ZodType<WithStatement> = z.lazy(() => z.union([
-    z.object({
-      kind: z.literal('cte'),
-      name: z.string().describe('CTE name'),
-      statement: StatementSchema.describe('CTE statement'),
-    }).describe('Simple CTE'),
-    z.object({
-      kind: z.literal('cte-recursive'),
-      name: z.string().describe('CTE name'),
-      statement: SelectSchema.describe('Initial SELECT for recursive CTE'),
-      recursiveStatement: SelectSchema.describe('Recursive SELECT'),
-    }).describe('Recursive CTE')
-  ])).meta({ aid: 'WithStatement' }).describe('WITH statement (CTE)');
-
-  const CTEStatementSchema: z.ZodType<CTEStatement> = z.object({
-    kind: z.literal('withs'),
-    withs: z.array(WithStatementSchema).describe('CTE definitions'),
-    final: StatementSchema.describe('Final statement that uses the CTEs'),
-  }).meta({ aid: 'CTEStatement' }).describe('Statement with CTEs');
-
-  const QuerySchema: z.ZodType<Query> = z.union([
-    StatementSchema,
-    CTEStatementSchema
-  ]).meta({ aid: 'Query' }).describe('Complete SQL query');
-
+  // dba.ts:456/498/527: a union of the typed forms (2+), the one typed form, or the generic one.
   return {
-    SourceSchema,
-    TableSchema,
-    ColumnSchema,
-    AliasSchema,
-    SourceColumnSchema,
-    ConstantSchema,
-    AggregateSchema,
-    BinarySchema,
-    UnarySchema,
-    ComparisonSchema,
-    FunctionSchema,
-    ValueSchema,
-    BooleanValueSchema,
-    FunctionCallSchema,
-    SortSchema,
-    WindowValueSchema,
-    AliasValueSchema,
-    ColumnValueSchema,
-    SelectOrSetSchema,
-    DataSourceSchema,
-    JoinSchema,
-    SelectSchema,
-    InsertSchema,
-    UpdateSchema,
-    DeleteSchema,
-    SetOperationSchema,
-    StatementSchema,
-    WithStatementSchema,
-    CTEStatementSchema,
-    QuerySchema,
+    Table: Table as SchemaOf<Table>,
+    SourceColumn,
+    Insert: many<Insert>(typedInserts, genericInsert).describe('INSERT statement'),
+    Update: many<Update>(typedUpdates, genericUpdate).describe('UPDATE statement'),
+    Delete: many<Delete>(typedDeletes, genericDelete).describe('DELETE statement'),
   };
 }
 
-// Default schemas with no type definitions (tables/columns as strings)
-const defaultSchemas = createDBASchemas([]);
-
-export const SourceSchema = defaultSchemas.SourceSchema;
-export const TableSchema = defaultSchemas.TableSchema;
-export const ColumnSchema = defaultSchemas.ColumnSchema;
-export const AliasSchema = defaultSchemas.AliasSchema;
-export const SourceColumnSchema = defaultSchemas.SourceColumnSchema;
-export const ConstantSchema = defaultSchemas.ConstantSchema;
-export const AggregateSchema = defaultSchemas.AggregateSchema;
-export const BinarySchema = defaultSchemas.BinarySchema;
-export const UnarySchema = defaultSchemas.UnarySchema;
-export const ComparisonSchema = defaultSchemas.ComparisonSchema;
-export const FunctionSchema = defaultSchemas.FunctionSchema;
-export const ValueSchema = defaultSchemas.ValueSchema;
-export const BooleanValueSchema = defaultSchemas.BooleanValueSchema;
-export const FunctionCallSchema = defaultSchemas.FunctionCallSchema;
-export const SortSchema = defaultSchemas.SortSchema;
-export const WindowValueSchema = defaultSchemas.WindowValueSchema;
-export const AliasValueSchema = defaultSchemas.AliasValueSchema;
-export const ColumnValueSchema = defaultSchemas.ColumnValueSchema;
-export const SelectOrSetSchema = defaultSchemas.SelectOrSetSchema;
-export const DataSourceSchema = defaultSchemas.DataSourceSchema;
-export const JoinSchema = defaultSchemas.JoinSchema;
-export const SelectSchema = defaultSchemas.SelectSchema;
-export const InsertSchema = defaultSchemas.InsertSchema;
-export const UpdateSchema = defaultSchemas.UpdateSchema;
-export const DeleteSchema = defaultSchemas.DeleteSchema;
-export const SetOperationSchema = defaultSchemas.SetOperationSchema;
-export const StatementSchema = defaultSchemas.StatementSchema;
-export const WithStatementSchema = defaultSchemas.WithStatementSchema;
-export const CTEStatementSchema = defaultSchemas.CTEStatementSchema;
-export const QuerySchema = defaultSchemas.QuerySchema;
+/**
+ * The query grammar for a set of types, as one bundle bound per types
+ * (cached by their content): `QuerySchema.bind(types)`.
+ */
+export const QuerySchema = DBAGrammar
+  .dynamic((types: TypeDefinition[]) => dbaTypeDefs(types), { key: (types) => typesKey(types) })
+  .result('Query');

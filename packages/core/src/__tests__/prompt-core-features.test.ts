@@ -4,12 +4,12 @@
  * Comprehensive tests for the Prompt component including:
  * - Template rendering with Handlebars
  * - Tool execution (sequential, parallel, immediate)
- * - Schema validation with Zod
+ * - Schema validation with @aeye/schema
  * - Streaming and non-streaming execution
  * - Context handling and applicability
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { DEFAULT_USER_TURN, Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context } from '../types';
@@ -45,7 +45,7 @@ describe('Prompt', () => {
         name: 'extract',
         description: 'Extract data',
         content: 'Extract information',
-        schema: z.object({ name: z.string(), age: z.number() })
+        schema: a.object({ name: a.string(), age: a.number() })
       });
 
       expect(prompt).toBeDefined();
@@ -56,7 +56,7 @@ describe('Prompt', () => {
         name: 'calculate',
         description: 'Calculate',
         instructions: 'Calculate numbers',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input) => input.a + input.b
       });
 
@@ -172,14 +172,14 @@ describe('Prompt', () => {
   });
 
   describe('Schema Validation', () => {
-    it('should parse response with Zod schema', async () => {
+    it('should parse response with an a.object schema', async () => {
       const prompt = new Prompt({
         name: 'extract',
         description: 'Extract',
         content: 'Extract person info',
-        schema: z.object({
-          name: z.string(),
-          age: z.number()
+        schema: a.object({
+          name: a.string(),
+          age: a.number()
         })
       });
 
@@ -205,9 +205,9 @@ describe('Prompt', () => {
         name: 'extract',
         description: 'Extract',
         content: 'Extract',
-        schema: z.object({
-          name: z.string(),
-          age: z.number()
+        schema: a.object({
+          name: a.string(),
+          age: a.number()
         }),
         toolIterations: 1,
       });
@@ -259,7 +259,7 @@ describe('Prompt', () => {
         name: 'add',
         description: 'Add numbers',
         instructions: 'Add two numbers together',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input) => input.a + input.b
       });
 
@@ -316,7 +316,7 @@ describe('Prompt', () => {
         name: 'multiply',
         description: 'Multiply',
         instructions: 'Multiply two numbers',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: async (input) => {
           await overlap();
           return input.a * input.b;
@@ -327,7 +327,7 @@ describe('Prompt', () => {
         name: 'subtract',
         description: 'Subtract',
         instructions: 'Subtract two numbers',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: async (input) => {
           await overlap();
           return input.a - input.b;
@@ -378,7 +378,7 @@ describe('Prompt', () => {
         name: 'divide',
         description: 'Divide',
         instructions: 'Divide two numbers',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input) => {
           if (input.b === 0) throw new Error('Division by zero');
           return input.a / input.b;

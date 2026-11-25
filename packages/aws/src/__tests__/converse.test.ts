@@ -4,7 +4,7 @@
  */
 
 import type { ModelInfo } from '@aeye/ai';
-import { type Chunk, type FinishReason, type Message, type Reason, type Request, type Response, TEXT_TOOL_SCHEMA, type ToolTextFormat } from '@aeye/core';
+import { type Chunk, type FinishReason, type Message, type Reason, type Request, type Response, type ResponseFormat, TEXT_TOOL_SCHEMA, type ToolTextFormat } from '@aeye/core';
 import {
   BedrockRuntimeClient,
   ConverseCommand,
@@ -15,7 +15,7 @@ import {
   ThrottlingException,
   ValidationException,
 } from '@aws-sdk/client-bedrock-runtime';
-import z from 'zod';
+import { a } from '@aeye/schema';
 import { AWSBedrockProvider, type AWSBedrockConfig } from '../aws';
 import { BEDROCK_REASONING_FORMAT } from '../converse';
 import { AWSContextWindowError, AWSRateLimitError } from '../types';
@@ -210,9 +210,9 @@ describe('Converse request mapping', () => {
     const sent = fakeBedrock();
     const grammar: ToolTextFormat = { type: 'grammar', syntax: 'lark', definition: 'start: "a"+' };
     const tools = [
-      { name: 'search', description: 'Search', parameters: z.object({ q: z.string() }), strict: true },
-      { name: 'emit', description: 'Emit', parameters: TEXT_TOOL_SCHEMA, format: grammar },
-      { name: 'hidden', parameters: z.object({}) },
+      { name: 'search', description: 'Search', parameters: a.object({ q: a.string() }).bind(), strict: true },
+      { name: 'emit', description: 'Emit', parameters: TEXT_TOOL_SCHEMA.bind(), format: grammar },
+      { name: 'hidden', parameters: a.object({}).bind() },
     ];
 
     await execute({ model: CLAUDE, messages: [{ role: 'user', content: 'Go' }], tools, toolChoice: { allowed: ['search', 'emit'], required: true } });
@@ -230,7 +230,7 @@ describe('Converse request mapping', () => {
 
   it('sends a structured output schema the model can be held to, else puts it in the prompt', async () => {
     const sent = fakeBedrock();
-    const responseFormat = { type: z.object({ title: z.string(), tags: z.array(z.string()).optional() }), strict: true };
+    const responseFormat = { type: a.object({ title: a.string(), tags: a.array(a.string()).optional() }).bind(), strict: true };
 
     await execute({ model: CLAUDE, messages: [{ role: 'user', content: 'Extract' }], responseFormat });
     await execute({ model: model('meta.llama3-1-70b-instruct-v1:0'), messages: [{ role: 'user', content: 'Extract' }], responseFormat: { ...responseFormat } });
@@ -243,11 +243,43 @@ describe('Converse request mapping', () => {
       additionalProperties: false,
       required: ['title'],
     });
-    expect(responseFormat).toHaveProperty('descriptor', 'anthropic-strict');
+    // The plan pinned on the format, for decoding the answer: Anthropic strict
+    expect((responseFormat as ResponseFormat & object).plan?.output).toMatchObject({ strict: true, delivery: 'structured', profile: { family: 'anthropic' } });
     expect(sent.converse[0].input.system).toBeUndefined();
     // Llama has no strict dialect, so its schema goes in the prompt instead
     expect(sent.converse[1].input.outputConfig).toBeUndefined();
-    expect(JSON.stringify(sent.converse[1].input.system)).toContain('conforming to this schema');
+    expect(JSON.stringify(sent.converse[1].input.system)).toContain('The response must be JSON of this type:');
+  });
+
+  it('plans a dynamic tool and a strict output for Claude in the Anthropic strict dialect', async () => {
+    const sent = fakeBedrock();
+    const Lookup = a
+      .define({ Filter: a.object({ field: a.ref('Field'), equals: a.string() }) })
+      .dynamic((fields: string[]) => ({ Field: a.enum(fields) }), { key: (fields) => fields.join() })
+      .result(a.object({ where: a.ref('Filter'), labels: a.record(a.string()), note: a.string().optional() }));
+    const tools = [{ name: 'lookup', description: 'Look up', parameters: Lookup.bind(['name', 'email']), strict: 1 }];
+    const responseFormat = { type: a.object({ rows: a.int(), tags: a.record(a.number()) }).bind(), strict: true };
+
+    await execute({ model: CLAUDE, messages: [{ role: 'user', content: 'Find' }], tools, responseFormat });
+    // Without 'toolsStrict' / 'structured' the tool goes non-strict and the output in the prompt
+    await execute({ model: model('anthropic.claude-sonnet-4-5-20250929-v1:0'), messages: [{ role: 'user', content: 'Find' }], tools, responseFormat: { ...responseFormat } });
+
+    const [strict, loose] = sent.converse.map(command => command.input);
+    const spec = strict.toolConfig!.tools![0].toolSpec!;
+    expect(spec.strict).toBe(true);
+    const parameters = spec.inputSchema!.json as any;
+    expect(parameters.additionalProperties).toBe(false);
+    // Anthropic strict: records as pairs, the ctx's fields as the enum
+    expect(parameters.properties.labels.type).toBe('array');
+    expect(JSON.stringify(parameters)).toContain('["name","email"]');
+    const output = JSON.parse(strict.outputConfig!.textFormat!.structure!.jsonSchema!.schema!);
+    expect(output.properties.tags.type).toBe('array');
+
+    const looseSpec = loose.toolConfig!.tools![0].toolSpec!;
+    expect(looseSpec.strict).toBeUndefined();
+    expect((looseSpec.inputSchema!.json as any).properties.labels.type).toBe('object');
+    expect(loose.outputConfig).toBeUndefined();
+    expect(JSON.stringify(loose.system)).toContain('The response must be JSON of this type:');
   });
 
   it.each<[string, ModelInfo, Reason, object]>([
@@ -291,8 +323,8 @@ describe('Converse request mapping', () => {
       model: model('anthropic.claude-opus-5-5'),
       messages: [{ role: 'user', content: 'Look it up' }],
       tools: [
-        { name: 'lookup', description: 'Look up', parameters: z.object({ q: z.string() }) },
-        { name: 'other', description: 'Other', parameters: z.object({}) },
+        { name: 'lookup', description: 'Look up', parameters: a.object({ q: a.string() }).bind() },
+        { name: 'other', description: 'Other', parameters: a.object({}).bind() },
       ],
       toolChoice: { tool: 'lookup' },
       reason: { effort: 'high' },
@@ -308,7 +340,7 @@ describe('Converse request mapping', () => {
     await execute({
       model: model('anthropic.claude-sonnet-4-5-20250929-v1:0'),
       messages: [{ role: 'user', content: 'Look it up' }],
-      tools: [{ name: 'lookup', description: 'Look up', parameters: z.object({ q: z.string() }) }],
+      tools: [{ name: 'lookup', description: 'Look up', parameters: a.object({ q: a.string() }).bind() }],
       toolChoice: 'required',
       reason: { effort: 'high' },
     });

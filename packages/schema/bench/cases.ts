@@ -11,13 +11,13 @@
  * - a request: `SchemaBudget` + per-tool allocation in priority order
  *   (ai/registry.ts `allocateToolDescriptors`) + strictify + toJSONSchema.
  *
- * Core's schema module is imported from SOURCE (`packages/core/src/schema`):
- * core's dist predates the current strictify, and the source is what the
- * monorepo runs.
+ * The zod path is core's schema module as it was before the core integration,
+ * frozen in `bench/legacy-core/` (from 3a0cb37) so the comparison stays
+ * reproducible after core moved to @aeye/schema.
  */
 import { releaseZodIds } from './zod-registries';
 import { z } from 'zod';
-import * as core from '../../core/src/schema/index';
+import * as core from './legacy-core/index';
 import { buildSchemas as ginBuildSchemas, createRegistry as ginCreateRegistry } from '@aeye/gin';
 import { buildSchemas as queryBuildSchemas } from '@aeye/query';
 import {

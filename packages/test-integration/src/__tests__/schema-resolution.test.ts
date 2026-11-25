@@ -5,11 +5,12 @@
  */
 
 import { describe, expect, it } from '@jest/globals';
-import { AI, buildSchemaBudget } from '@aeye/ai';
+import { AI, type ModelInfo } from '@aeye/ai';
+import { familyOf, planRequest, type RequestPlan } from '@aeye/core';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { models, strictSupport } from '@aeye/models';
-import z from 'zod';
+import { a } from '@aeye/schema';
 
 // Exposes the families each provider speaks, so the table runs through the real ones
 class OpenAIProbe extends OpenAIProvider {
@@ -25,25 +26,34 @@ class OpenRouterProbe extends OpenRouterProvider {
 
 const providers = { openai: new OpenAIProbe({ apiKey: 'offline' }), openrouter: new OpenRouterProbe({ apiKey: 'offline' }) };
 const ai = AI.with().providers(providers).create({ models, modelOverrides: strictSupport });
-const schema = z.object({ answer: z.string() });
+const schema = a.object({ answer: a.string() });
+
+/** A request with one tool and a structured output, planned for `model` as its provider plans it. */
+function plan(provider: keyof typeof providers, model: ModelInfo): RequestPlan {
+  return planRequest({
+    tools: [{ name: 'record', parameters: schema.bind(), strict: 1 }],
+    responseFormat: { type: schema.bind(), strict: 1 },
+  }, model, { speaks: providers[provider].families() });
+}
+
+/** A rendering's dialect: its family, `-strict` when sent strict, `(prompt)` when sent as prompt text. */
+const dialect = (entry: { profile: { family: string }; strict: boolean; delivery: string }) =>
+  entry.profile.family + (entry.strict ? '-strict' : '') + (entry.delivery === 'prompt' ? ' (prompt)' : '');
 
 /**
- * The descriptor ids a model's tool and output schemas are sent with when
- * strict is preferred.
+ * The dialects a model's tool and output schemas are sent in when strict is
+ * preferred.
  */
 function dialects(provider: keyof typeof providers, id: string): [string, string] {
   const model = ai.models.list().find(m => m.provider === provider && m.id === id);
   if (!model) {
     throw new Error(`${provider} ${id} is not in the registry`);
   }
-  const families = providers[provider].families();
-  return [
-    buildSchemaBudget(model, families).allocateTool(schema, 1).id,
-    buildSchemaBudget(model, families).allocateOutput(schema, 1).id,
-  ];
+  const planned = plan(provider, model);
+  return [dialect(planned.get('record')), dialect(planned.output!)];
 }
 
-// Provider, model id, tool descriptor, output descriptor
+// Provider, model id, tool dialect, output dialect
 const table: [keyof typeof providers, string, string, string][] = [
   // OpenAI direct
   ['openai', 'gpt-5.4-nano', 'openai-strict', 'openai-strict'],
@@ -51,7 +61,8 @@ const table: [keyof typeof providers, string, string, string][] = [
   ['openai', 'gpt-4.1-nano', 'openai-strict', 'openai-strict'],
   ['openai', 'gpt-4o-mini', 'openai-strict', 'openai-strict'],
   ['openai', 'o4-mini', 'openai-strict', 'openai-strict'],
-  ['openai', 'gpt-4-turbo', 'openai-non-strict', 'openai-non-strict'],
+  // No 'structured' or 'json' in the registry: the output goes as prompt text
+  ['openai', 'gpt-4-turbo', 'openai', 'openai (prompt)'],
   // OpenRouter, vendor families
   ['openrouter', 'openai/gpt-5.4-nano', 'openai-strict', 'openai-strict'],
   ['openrouter', '~openai/gpt-mini-latest', 'openai-strict', 'openai-strict'],
@@ -76,13 +87,13 @@ describe('schema dialect per model', () => {
     expect(dialects(provider, id)).toEqual([tools, output]);
   });
 
-  it('never sends a strict tool to a model without strict tools', () => {
+  it('never sends a strict tool to a model without strict tools (but xAI, whose tools always are)', () => {
     for (const model of ai.models.list()) {
-      if (model.capabilities.has('toolsStrict') || !(model.provider in providers)) {
+      if (model.capabilities.has('toolsStrict') || !(model.provider in providers) || familyOf(model) === 'xai') {
         continue;
       }
       const provider = model.provider === 'openai' ? 'openai' : 'openrouter';
-      expect([model.id, buildSchemaBudget(model, providers[provider].families()).allocateTool(schema, 1).strict]).toEqual([model.id, false]);
+      expect([model.id, plan(provider, model).get('record').strict]).toEqual([model.id, false]);
     }
   });
 });

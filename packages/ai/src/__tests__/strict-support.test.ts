@@ -5,7 +5,7 @@ import { strictSupport } from '@aeye/models';
  * Verifies that:
  * - `'toolsStrict'` capability is auto-derived when `resolveStrictFormat`
  *   returns a family — explicit `strictFormat`, provider name, or id prefix.
- * - `getStrictFormat` returns the right descriptor for each (model, requested) combo
+ * - `getStrictFormat` returns the right profile for each (model, requested) combo
  * - Optional capability scoring biases selection toward strict-capable models without filtering
  * - `strictFormat: 'none'` opts a model out even when provider/id would auto-resolve
  */
@@ -15,8 +15,8 @@ import {
   GOOGLE_STRICT,
   LENIENT,
   OPENAI_STRICT,
-  registerDescriptor,
-} from '@aeye/core';
+  registerProfile,
+} from '@aeye/schema';
 import { ModelRegistry, resolveStrictFormat } from '../registry';
 import type { ModelInfo, ModelOverride } from '../types';
 import { createMockProvider } from './mocks/provider.mock';
@@ -181,7 +181,7 @@ describe('Strict-mode capability handling', () => {
       expect(registry.getStrictFormat(model, true)).toBe(LENIENT);
     });
 
-    it('returns the right strict descriptor per resolved family', async () => {
+    it('returns the right strict profile per resolved family', async () => {
       const provider = createMockProvider({
         name: 'p',
         models: [
@@ -199,9 +199,9 @@ describe('Strict-mode capability handling', () => {
     });
   });
 
-  describe('custom descriptor families', () => {
-    it('resolveStrictFormat finds a custom family registered in @aeye/core', () => {
-      registerDescriptor({
+  describe('custom profile families', () => {
+    it('resolveStrictFormat finds a custom family registered in @aeye/schema', () => {
+      registerProfile({
         ...OPENAI_STRICT,
         id: 'cohere-strict',
         family: 'cohere',
@@ -214,7 +214,7 @@ describe('Strict-mode capability handling', () => {
     });
 
     it("auto-derives 'toolsStrict' from explicit custom strictFormat", async () => {
-      registerDescriptor({
+      registerProfile({
         ...OPENAI_STRICT,
         id: 'mistral-strict',
         family: 'mistral',
@@ -230,7 +230,7 @@ describe('Strict-mode capability handling', () => {
       const model = registry.getModel('mistral-large')!;
       expect(model.strictFormat).toBe('mistral');
       expect(model.capabilities.has('toolsStrict')).toBe(true);
-      // getStrictFormat resolves to the registered descriptor.
+      // getStrictFormat resolves to the registered profile.
       const desc = registry.getStrictFormat(model, true);
       expect(desc.id).toBe('mistral-strict');
     });

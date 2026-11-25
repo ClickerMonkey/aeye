@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
 
@@ -16,9 +16,9 @@ Example: Search for recent AI developments:
 { "query": "recent developments in large language models", "maxResults": 5 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      query: z.string().describe('Search query'),
-      maxResults: z.number().optional().default(5).describe('Maximum number of results to return (default: 5)'),
+    schema: a.object({
+      query: a.string().describe('Search query'),
+      maxResults: a.number().default(5).describe('Maximum number of results to return (default: 5)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('web_search'),
@@ -40,13 +40,13 @@ Example 3: Search for specific content with regex:
 { "url": "https://example.com", "type": "text", "regex": "price.*\\$[0-9]+", "surrounding": 2 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      url: z.string().describe('URL of the page to fetch'),
-      type: z.enum(['html', 'text']).describe('Content type to return: "html" for raw HTML, "text" for plain text'),
-      regex: z.string().optional().describe('Optional regex pattern to search for in content'),
-      surrounding: z.number().optional().describe('Number of surrounding lines to include when using regex (default: 0)'),
-      lineStart: z.number().optional().describe('Starting line number (1-indexed)'),
-      lineEnd: z.number().optional().describe('Ending line number (1-indexed)'),
+    schema: a.object({
+      url: a.string().describe('URL of the page to fetch'),
+      type: a.enum(['html', 'text']).describe('Content type to return: "html" for raw HTML, "text" for plain text'),
+      regex: a.string().optional().describe('Optional regex pattern to search for in content'),
+      surrounding: a.number().optional().describe('Number of surrounding lines to include when using regex (default: 0)'),
+      lineStart: a.number().optional().describe('Starting line number (1-indexed)'),
+      lineEnd: a.number().optional().describe('Ending line number (1-indexed)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('web_get_page'),
@@ -73,13 +73,13 @@ Request/Response Types:
 - binary: Base64-encoded binary data
  
 {{modeInstructions}}`,
-    schema: z.object({
-      url: z.string().describe('API endpoint URL'),
-      method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).describe('HTTP method'),
-      headers: z.record(z.string(), z.string()).optional().describe('Request headers as key-value pairs'),
-      body: z.string().optional().describe('Request body (for POST, PUT, PATCH)'),
-      requestType: z.enum(['json', 'text', 'binary']).optional().describe('Request body type (default: text)'),
-      responseType: z.enum(['json', 'text', 'binary']).optional().describe('Expected response type (default: text)'),
+    schema: a.object({
+      url: a.string().describe('API endpoint URL'),
+      method: a.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).describe('HTTP method'),
+      headers: a.record(a.string()).optional().describe('Request headers as key-value pairs'),
+      body: a.string().optional().describe('Request body (for POST, PUT, PATCH)'),
+      requestType: a.enum(['json', 'text', 'binary']).optional().describe('Request body type (default: text)'),
+      responseType: a.enum(['json', 'text', 'binary']).optional().describe('Expected response type (default: text)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('web_api_call'),
@@ -108,9 +108,9 @@ The operation will:
 - Return the final path, size, and detected extension
 
 {{modeInstructions}}`,
-    schema: z.object({
-      url: z.string().describe('URL of the file to download'),
-      target: z.string().describe('Target file path where the file should be saved (can be relative or absolute)'),
+    schema: a.object({
+      url: a.string().describe('URL of the file to download'),
+      target: a.string().describe('Target file path where the file should be saved (can be relative or absolute)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('web_download'),

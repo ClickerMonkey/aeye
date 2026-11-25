@@ -487,29 +487,30 @@ describe('gaps', () => {
   });
 
   // core:prompt-miscellaneous-simple.test.ts:367 `schema: z.string().min(5)`: core sends no response format and
-  // takes the model's raw text as the value (then validates min(5)). @aeye/schema wraps a string output root
-  // as `{ input }` and only parses JSON.
-  it.fails('GAP: text output — a string output schema takes the raw reply text', () => {
-    const out = ModelProfile.of(OPENAI_STRICT).request([{ kind: 'output', schema: C.TextMin5 }]).get('output');
-    const res = out.parseText('Valid string response');
+  // takes the model's raw text as the value (then validates min(5)). Closed in the core integration: a Prompt
+  // whose output is `a.string()` answers in text (no response format, nothing planned) and checks the raw
+  // reply with the schema's code-shape rendering — what this asserts (core: schema-output.test.ts).
+  it('(was GAP, closed in the core integration) text output — a string output schema checks the raw reply text', () => {
+    const text = C.TextMin5.render(LENIENT);
+    const res = text.parse('Valid string response');
     expect(res.ok && res.value).toBe('Valid string response');
+    const short = text.parse('Hi');
+    expect(!short.ok && short.message).toMatch(/at least 5/);
   });
 
   // core:tool.test.ts:194 — a double-encoded arg whose inner JSON is broken: core reports a targeted message
   // ("program ... JSON-encoded string ... as a JSON object directly"). Here the failed repair is silent and the
   // model is told only "Expected an object, got string.", which doesn't say what went wrong.
-  it.fails('GAP: repair-failed message — a broken JSON-text container should say it was JSON text that failed to parse', () => {
+  it('(was GAP, closed in the core integration) repair-failed message — a broken JSON-text container says it was JSON text that failed to parse', () => {
     const res = C.ProgramKindArgs.render(asTool(OPENAI_STRICT)).parse({ program: '{"kind": "block", "lines": []]}' });
-    expect(!res.ok && res.message).toMatch(/JSON/);
+    expect(!res.ok && res.message).toMatch(/JSON text that doesn't parse/);
+    expect(!res.ok && res.message).toMatch(/send the value itself/);
   });
 
   // core:prompt-applicability-compatibility.test.ts:20 `schema: () => false` → `prompt.applicable()` is false.
-  // PromptInputV2 (proposal/core-api.ts) has no `applicable`, so the port is a type error (see core-tools.ts).
-  it.fails('GAP: prompt-applicable — a prompt can say it is not applicable', () => {
-    const p = C.notApplicablePrompt as unknown as { applicable?: () => boolean };
-    // The object carries it only because the port forced it past the types; the proposal API doesn't read it.
-    expect(Object.keys(C.notApplicablePrompt)).not.toContain('applicable');
-    expect(p.applicable?.()).toBe(false);
+  // Closed in the core integration: core's PromptInput has `applicable` (and so does PromptInputV2 now).
+  it('(was GAP, closed in the core integration) prompt-applicable — a prompt can say it is not applicable', () => {
+    expect(C.notApplicablePrompt.applicable?.({})).toBe(false);
   });
 
   it('sanity: clone keeps tests independent', () => {

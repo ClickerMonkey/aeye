@@ -1,7 +1,7 @@
 import Handlebars from "handlebars";
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { CletusAIContext, transcribe } from "../ai";
 import { abbreviate, formatName, pluralize } from "../common";
 import { ConfigFile } from "../config";
@@ -11,14 +11,57 @@ import { canEmbed, embed } from "../embed";
 import { getAssetPath } from "../file-manager";
 import { processFile, searchFiles } from "../helpers/files";
 import { renderOperation } from "../helpers/render";
-import { buildFieldsSchema, getType, getTypeName } from "../helpers/type";
+import { buildFieldsSchema, getType, getTypeName, type FieldValues } from "../helpers/type";
 import { KnowledgeFile } from "../knowledge";
 import { KnowledgeEntry, TypeDefinition, TypeField } from "../schemas";
 import { operationOf } from "./types";
 import { executeQuery, executeQueryWithoutCommit, commitQueryChanges, canCommitQueryResult, QueryResult, QueryExecutionPayload, CanCommitResult } from '../helpers/query';
 import type { Query } from '../helpers/dba';
-import { createDBASchemas, describeTypes } from '../helpers/dba';
+import { DBAGrammar, dbaTypeDefs, describeTypes, typesKey } from '../helpers/dba';
 import { QUERY_EXAMPLES } from '../helpers/dba-examples';
+
+/**
+ * The extractor's answer: the records found, each an object of the type's
+ * fields (bound per type definition).
+ */
+const ExtractorOutput = a
+  .declare<{ Fields: FieldValues }>()
+  .dynamic((_ctx: unknown, input: { typeDef: TypeDefinition }) => ({ Fields: buildFieldsSchema(input.typeDef) }), {
+    key: (_ctx, input) => typesKey([input.typeDef]),
+  })
+  .result(a.object({
+    results: a.array(a.ref('Fields')),
+  }));
+
+/**
+ * The query type selector's answer: the type names a query needs.
+ */
+const TypeSelectorOutput = a
+  .declare<{ TypeName: string }>()
+  .dynamic((_ctx: unknown, input: { types: TypeDefinition[] }) => ({
+    TypeName: a.enum(input.types.map(t => t.name) as [string, ...string[]]),
+  }), { key: (_ctx, input) => typesKey(input.types) })
+  .result(a.object({
+    types: a.array(a.ref('TypeName')).describe('Array of type names needed for the query'),
+  }));
+
+/**
+ * A query over the given types (query_builder, query_fixer).
+ */
+const QueryOutput = DBAGrammar
+  .dynamic((_ctx: unknown, input: { types: TypeDefinition[] }) => dbaTypeDefs(input.types), {
+    key: (_ctx, input) => typesKey(input.types),
+  })
+  .result(a.object({
+    query: a.ref('Query'),
+  }));
+
+/**
+ * The fields that identify a record (strict structured output).
+ */
+const UniqueFieldsOutput = a.object({
+  fields: a.array(a.string()),
+});
 
 
 const getKnowledge = async () => {
@@ -160,10 +203,8 @@ Fields:
 <text>
 {{text}}
 </text>`,
-      schema: z.object({ 
-        results: z.array(buildFieldsSchema(typeDef)),
-      }),
-      input: ({ text }: { text: string }) => ({ typeDef, text }),
+      schema: ExtractorOutput,
+      input: ({ text, typeDef }: { text: string; typeDef: TypeDefinition }) => ({ typeDef, text }),
       metadataFn: () => ({
         model: config.getData().user.models?.chat,
       }),
@@ -228,7 +269,7 @@ Fields:
         // Extract data from grouped sections
         const extractedResults = await Promise.allSettled(sectionGroups.map(async (group, index) => {
           try {
-            const { results } = await extractor.get('result', { text: group }, ctx) || { results: [] };
+            const { results } = await extractor.get('result', { text: group, typeDef }, ctx) || { results: [] };
 
             return results;
           } catch (error) {
@@ -554,7 +595,7 @@ const MAX_QUERY_RETRY_ATTEMPTS = 5;
  * @param query - The Query object to validate
  * @param ctx - The Cletus AI context
  * @param getManager - Function to get a data manager for a type
- * @param schemas - The DBA schemas for the query types
+ * @param types - The types the query may use
  * @param queryDescription - Optional original query description (for context when fixing)
  * @returns A valid QueryExecutionPayload
  * @throws Error if validation fails after all retry attempts
@@ -563,7 +604,7 @@ async function validateQueryWithRetry(
   query: Query,
   ctx: CletusAIContext,
   getManager: (typeName: string) => DataManager,
-  schemas: ReturnType<typeof createDBASchemas>,
+  types: TypeDefinition[],
   queryDescription?: string
 ): Promise<QueryExecutionPayload> {
   const { config, ai, chatStatus } = ctx;
@@ -620,9 +661,8 @@ Validation errors:
 {{errorDetails}}
 
 Analyze the errors and provide a corrected query that resolves all validation issues. Make minimal changes necessary to fix the errors${queryDescription ? ', while ensuring the query still satisfies the original user request' : ''}.`,
-      schema: z.object({
-        query: schemas.QuerySchema,
-      }),
+      schema: QueryOutput,
+      input: ({ queryJson, errorDetails, queryDescription }: { queryJson: string; errorDetails: string; queryDescription?: string; types: TypeDefinition[] }) => ({ queryJson, errorDetails, queryDescription }),
       metadataFn: () => ({
         model: config.getData().user.models?.chat,
       }),
@@ -632,6 +672,7 @@ Analyze the errors and provide a corrected query that resolves all validation is
       queryJson: JSON.stringify(currentQuery, null, 2),
       errorDetails,
       queryDescription,
+      types,
     }, ctx) as { query: Query };
 
     currentQuery = correctedQuery;
@@ -660,8 +701,8 @@ async function validateAndExecuteQuery(
   // Store the original query string for cache
   const queryDescription = typeof queryInput === 'string' ? queryInput : undefined;
 
-  // The schemas to use for validation
-  let schemas: ReturnType<typeof createDBASchemas>;
+  // The types the query may use (for corrections)
+  let queryTypes: TypeDefinition[];
 
   // If query is a string, we need to build it first
   let parsedQuery: Query;
@@ -691,16 +732,14 @@ Query description:
 {{queryDescription}}
 
 Return a JSON object with an array of type names that are needed to execute this query. Only include types that are absolutely necessary.`,
-      schema: z.object({
-        types: z.array(z.enum(typeNames as [string, ...string[]])).describe('Array of type names needed for the query'),
-      }),
-      input: ({ queryDescription }: { queryDescription: string }) => ({ typeDescriptions, queryDescription }),
+      schema: TypeSelectorOutput,
+      input: ({ queryDescription }: { queryDescription: string; types: TypeDefinition[] }) => ({ typeDescriptions, queryDescription }),
       metadataFn: () => ({
         model: config.getData().user.models?.chat,
       }),
     });
 
-    const { types: neededTypeNames } = await typeSelector.get('result', { queryDescription: queryInput }, ctx) as { types: string[] };
+    const { types: neededTypeNames } = await typeSelector.get('result', { queryDescription: queryInput, types }, ctx) as { types: string[] };
 
     // Validate that all needed types exist
     const neededTypes = neededTypeNames
@@ -714,7 +753,7 @@ Return a JSON object with an array of type names that are needed to execute this
     chatStatus(`Building query for types: ${neededTypes.map(t => t.friendlyName).join(', ')}...`);
 
     // Step 2: Build the query using the selected types
-    schemas = createDBASchemas(neededTypes);
+    queryTypes = neededTypes;
     const neededTypeDescriptions = describeTypes(neededTypes);
 
     const queryBuilder = ai.prompt({
@@ -733,10 +772,8 @@ Build a query object that satisfies this description. The query must be valid ac
 Here are some examples of valid query structures:
 
 {{queryExamples}}`,
-      schema: z.object({
-        query: schemas.QuerySchema,
-      }),
-      input: ({ queryDescription }: { queryDescription: string }) => ({ 
+      schema: QueryOutput,
+      input: ({ queryDescription }: { queryDescription: string; types: TypeDefinition[] }) => ({ 
         neededTypeDescriptions, 
         queryDescription,
         queryExamples: QUERY_EXAMPLES,
@@ -746,16 +783,16 @@ Here are some examples of valid query structures:
       }),
     });
 
-    const { query } = await queryBuilder.get('result', { queryDescription: queryInput }, ctx) as { query: Query };
+    const { query } = await queryBuilder.get('result', { queryDescription: queryInput, types: neededTypes }, ctx) as { query: Query };
 
     parsedQuery = query;
   } else {
     parsedQuery = queryInput;
-    schemas = createDBASchemas(config.getData().types);
+    queryTypes = config.getData().types;
   }
 
   // Validate the query with retry logic
-  const payload = await validateQueryWithRetry(parsedQuery, ctx, getManager, schemas, queryDescription);
+  const payload = await validateQueryWithRetry(parsedQuery, ctx, getManager, queryTypes, queryDescription);
 
   return {
     payload,
@@ -1120,7 +1157,7 @@ Consider:
         { role: 'system', content: 'You are a database design assistant. Analyze data schemas and identify unique key fields.' },
         { role: 'user', content: prompt },
       ],
-      responseFormat: { type: z.object({ fields: z.array(z.string()) }), strict: true },
+      responseFormat: { type: UniqueFieldsOutput.bind(), strict: true },
     });
     
     // Parse JSON from content

@@ -4,7 +4,7 @@
  * Common test data used across multiple test files.
  */
 
-import z from 'zod';
+import { a } from '@aeye/schema';
 import type { Message, Request, Response, Chunk, ToolCall } from '../../types';
 
 // ============================================================================
@@ -61,11 +61,11 @@ export const mockRequestWithTools: Request = {
     {
       name: 'calculator',
       description: 'Performs calculations',
-      parameters: z.object({
-        operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
-        a: z.number(),
-        b: z.number()
-      }),
+      parameters: a.object({
+        operation: a.enum(['add', 'subtract', 'multiply', 'divide']),
+        a: a.number(),
+        b: a.number()
+      }).bind(),
     }
   ]
 };

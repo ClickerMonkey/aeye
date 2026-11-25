@@ -251,12 +251,10 @@ expectTypeOf(PersonByInput.bind).parameters.toEqualTypeOf<[Context<{}>, { includ
 export const TextMin5 = a.string().min(5);
 
 // core:prompt-applicability-compatibility.test.ts:20 and prompt-edge-cases-errors.test.ts:553 —
-// `schema: () => false` / `(input, ctx) => false`: the prompt is not applicable. PromptInputV2 has no
-// `applicable` (GAP: prompt-applicable); the port can only drop the schema.
+// `schema: () => false` / `(input, ctx) => false`: the prompt is not applicable → `applicable`.
 export const notApplicablePrompt = prompt({
   name: 'schema-false',
   content: 'Test',
-  // @ts-expect-error GAP: prompt-applicable — PromptInputV2 has no `applicable` for "schema returned false".
   applicable: () => false,
 });
 

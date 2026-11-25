@@ -1,16 +1,93 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
+import { typesKey } from '../helpers/dba';
+import { typeNameSchema, type TypesContext } from '../helpers/type';
+
+const FIELD_TYPE_DOC = 'Field type - can be a primitive type (string, number, boolean, date, enum) or the name of another type to create a relationship';
+
+/**
+ * `TypeName` (the configured type names) and `FieldType` (the primitives plus
+ * every type name), bound per call from the configured types.
+ */
+const TypeNamesModule = a
+  .declare<{ TypeName: string; FieldType: string }>()
+  .dynamic((ctx: TypesContext) => {
+    const types = ctx.config.getData().types;
+    return {
+      TypeName: typeNameSchema(types),
+      FieldType: a.enum(['string', 'number', 'boolean', 'date', 'enum', ...types.map((t) => t.name)]).describe(FIELD_TYPE_DOC),
+    };
+  }, { key: (ctx) => typesKey(ctx.config.getData().types) });
+
+const TypeInfoArgs = TypeNamesModule.result(a.object({
+  name: a.ref('TypeName').describe('Type name to get information about'),
+  ...globalToolProperties,
+}));
+
+const TypeListArgs = a.object({
+  ...globalToolProperties,
+});
+
+const TypeUpdateArgs = TypeNamesModule.result(a.object({
+  name: a.ref('TypeName').describe('Type name to update'),
+  update: a.object({
+    friendlyName: a.string().optional().describe('New friendly name'),
+    description: a.string().optional().describe('New description'),
+    knowledgeTemplate: a.string().optional().describe('New Handlebars template for knowledge generation, ie: {{name}} and {{#if field}}...{{/if}}. It should include all fields and if the fields are optional #if statements should be used. Newlines & markdown can be used for formatting.'),
+    fields: a.array(a.object({
+      field: a.string().describe('Field name to update (lowercase, no spaces)'),
+      change: a.union([
+        a.null(),
+        a.object({
+          friendlyName: a.string().optional().describe('Field display name, only specify if changing'),
+          type: a.ref('FieldType').optional().describe('Field type, only specify if changing'),
+          required: a.boolean().optional().describe('Is field required? Only specify if changing'),
+          default: a.union([a.string(), a.number(), a.boolean()]).optional().describe('Default value, only specify if changing'),
+          enumOptions: a.array(a.string()).optional().describe('Valid enum values (required for enum type), only specify if changing or adding enum field'),
+          onDelete: a.enum(['restrict', 'cascade', 'setNull']).optional().describe('Cascade delete behavior for reference fields, only specify if changing: restrict (default, prevent deletion), cascade (delete referencing records), setNull (set field to null)'),
+        }),
+      ]).describe('Field updates: set to null to delete'),
+    })),
+  }).describe('Updates to apply'),
+  ...globalToolProperties,
+}));
+
+const TypeCreateArgs = TypeNamesModule.result(a.object({
+  name: a.string().describe('Type name (lowercase, no spaces)'),
+  friendlyName: a.string().describe('Display name'),
+  description: a.string().optional().describe('Type description'),
+  knowledgeTemplate: a.string().describe('Handlebars template for knowledge generation, ie: {{name}} and {{#if field}}...{{/if}}. It should include all fields and if the fields are optional #if statements should be used. Newlines & markdown can be used for formatting.'),
+  fields: a.array(
+    a.object({
+      name: a.string().describe('Field name (lowecase, no spaces)'),
+      friendlyName: a.string().describe('Field display name'),
+      type: a.ref('FieldType'),
+      default: a.union([a.string(), a.number(), a.boolean()]).optional().describe('Default value'),
+      required: a.boolean().optional().describe('Is field required?'),
+      enumOptions: a.array(a.string()).optional().describe('Valid enum values (required for enum type)'),
+      onDelete: a.enum(['restrict', 'cascade', 'setNull']).optional().describe('Cascade delete behavior for reference fields: restrict (default, prevent deletion), cascade (delete referencing records), setNull (set field to null)'),
+    })
+  ).describe('Field definitions'),
+  ...globalToolProperties,
+}));
+
+const TypeDeleteArgs = TypeNamesModule.result(a.object({
+  name: a.ref('TypeName').describe('Type name to delete'),
+  ...globalToolProperties,
+}));
+
+const TypeImportArgs = a.object({
+  glob: a.string().describe('Glob pattern for files to analyze (e.g., "data/*.csv", "**/*.txt")'),
+  hints: a.array(a.string()).optional().describe('Optional type name hints to focus discovery (e.g., ["user", "order", "product"])'),
+  max: a.number().optional().describe('Maximum number of types to discover (default: unlimited)'),
+  ...globalToolProperties,
+});
 
 /**
  * Create architect tools for type definition management
  */
 export function createArchitectTools(ai: CletusAI) {
-  const configData = ai.config.defaultContext!.config!.getData();
-  const types = configData.types.map((t) => t.name);
-
-  const fieldType = z.enum(['string', 'number', 'boolean', 'date', 'enum', ...types]).describe('Field type - can be a primitive type (string, number, boolean, date, enum) or the name of another type to create a relationship');
-
   const typeInfo = ai.tool({
     name: 'type_info',
     description: 'Get all information about a type definition',
@@ -20,10 +97,7 @@ Example: Get information about a type:
 { "name": "task" }
  
 {{modeInstructions}}`,
-    schema: (ctx) => z.object({
-      name: z.enum(ctx.config.getData().types.map(t => t.name)).describe('Type name to get information about'),
-      ...globalToolProperties,
-    }),
+    schema: TypeInfoArgs,
     applicable: ({ config }) => config.getData().types.length > 0,
     input: getOperationInput('type_info'),
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'type_info', input }, ctx),
@@ -37,9 +111,7 @@ Example: List all types:
 { }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      ...globalToolProperties,
-    }),
+    schema: TypeListArgs,
     input: getOperationInput('type_list'),
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'type_list', input }, ctx),
   });
@@ -81,29 +153,7 @@ If fields are being changed knowledgeTemplate MUST be updated to reflect those c
 If the knowledgeTemplate is updated and there are records for this type the data_index tool should be called to reindex the knowledge base.
 
 {{modeInstructions}}`,
-    schema: ({ config }) => z.object({
-      name: z.enum(config.getData().types.map(t => t.name)).describe('Type name to update'),
-      update: z.object({
-        friendlyName: z.string().optional().describe('New friendly name'),
-        description: z.string().optional().describe('New description'),
-        knowledgeTemplate: z.string().optional().describe('New Handlebars template for knowledge generation, ie: {{name}} and {{#if field}}...{{/if}}. It should include all fields and if the fields are optional #if statements should be used. Newlines & markdown can be used for formatting.'),
-        fields: z.array(z.object({
-          field: z.string().describe('Field name to update (lowercase, no spaces)'),
-          change: z.union([
-            z.null(),
-            z.object({
-              friendlyName: z.string().optional().describe('Field display name, only specify if changing'),
-              type: fieldType.optional().describe('Field type, only specify if changing'),
-              required: z.boolean().optional().describe('Is field required? Only specify if changing'),
-              default: z.union([z.string(), z.number(), z.boolean()]).optional().describe('Default value, only specify if changing'),
-              enumOptions: z.array(z.string()).optional().describe('Valid enum values (required for enum type), only specify if changing or adding enum field'),
-              onDelete: z.enum(['restrict', 'cascade', 'setNull']).optional().describe('Cascade delete behavior for reference fields, only specify if changing: restrict (default, prevent deletion), cascade (delete referencing records), setNull (set field to null)'),
-            })
-          ]).describe('Field updates: set to null to delete')
-        }))
-      }).describe('Updates to apply'),
-      ...globalToolProperties,
-    }),
+    schema: TypeUpdateArgs,
     input: getOperationInput('type_update'),
     applicable: ({ config }) => config.getData().types.length > 0,
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'type_update', input }, ctx),
@@ -128,24 +178,7 @@ Example 2: Create a task type with a relationship to project (create project typ
 { "name": "task", "friendlyName": "Task", "description": "Task assigned to a project", "knowledgeTemplate": "Task: {{name}}\\nProject: {{projectid}}\\nStatus: {{status}}", "fields": [{ "name": "name", "friendlyName": "Name", "type": "string", "required": true }, { "name": "projectid", "friendlyName": "Project", "type": "project", "required": true }, { "name": "status", "friendlyName": "Status", "type": "string", "required": true, "default": "todo" }] }
 
 {{modeInstructions}}`,
-    schema: z.object({
-      name: z.string().describe('Type name (lowercase, no spaces)'),
-      friendlyName: z.string().describe('Display name'),
-      description: z.string().optional().describe('Type description'),
-      knowledgeTemplate: z.string().describe('Handlebars template for knowledge generation, ie: {{name}} and {{#if field}}...{{/if}}. It should include all fields and if the fields are optional #if statements should be used. Newlines & markdown can be used for formatting.'),
-      fields: z.array(
-        z.object({
-          name: z.string().describe('Field name (lowecase, no spaces)'),
-          friendlyName: z.string().describe('Field display name'),
-          type: fieldType,
-          default: z.union([z.string(), z.number(), z.boolean()]).optional().describe('Default value'),
-          required: z.boolean().optional().describe('Is field required?'),
-          enumOptions: z.array(z.string()).optional().describe('Valid enum values (required for enum type)'),
-          onDelete: z.enum(['restrict', 'cascade', 'setNull']).optional().describe('Cascade delete behavior for reference fields: restrict (default, prevent deletion), cascade (delete referencing records), setNull (set field to null)'),
-        })
-      ).describe('Field definitions'),
-      ...globalToolProperties,
-    }),
+    schema: TypeCreateArgs,
     input: getOperationInput('type_create'),
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'type_create', input }, ctx),
   });
@@ -161,10 +194,7 @@ Example: Delete a type:
 { "name": "task" }
  
 {{modeInstructions}}`,
-    schema: (ctx) => z.object({
-      name: z.enum(ctx.config.getData().types.map(t => t.name)).describe('Type name to delete'),
-      ...globalToolProperties,
-    }),
+    schema: TypeDeleteArgs,
     applicable: ({ config }) => config.getData().types.length > 0,
     input: getOperationInput('type_delete'),
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'type_delete', input }, ctx),
@@ -204,12 +234,7 @@ Example 3: Limit discovery to top types:
 { "glob": "**/*.json", "max": 5 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      glob: z.string().describe('Glob pattern for files to analyze (e.g., "data/*.csv", "**/*.txt")'),
-      hints: z.array(z.string()).optional().describe('Optional type name hints to focus discovery (e.g., ["user", "order", "product"])'),
-      max: z.number().optional().describe('Maximum number of types to discover (default: unlimited)'),
-      ...globalToolProperties,
-    }),
+    schema: TypeImportArgs,
     input: getOperationInput('type_import'),
     call: async (input, _, ctx) => ctx.ops.handle({ type: 'type_import', input }, ctx),
   });

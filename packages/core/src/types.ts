@@ -1,7 +1,6 @@
-import z from "zod";
+import type { Bound, ErrorFormatInput, RenderedRequest } from "@aeye/schema";
 import { Resolved } from "./common";
 import { AnyPrompt, PromptEvent } from "./prompt";
-import { extend } from "zod/mini";
 
 /**
  * Utility type for representing tuples (arrays with at least zero elements).
@@ -309,6 +308,13 @@ export type Context<TContext, TMetadata> = TContext &
   toolRetries?: number;
 
   /**
+   * How bad tool arguments and outputs are told to the model in this
+   * context's requests (a detail level or the full options); a tool's or
+   * prompt's own `errorFormat` wins over it. Default `'full'`.
+   */
+  errorFormat?: ErrorFormatInput;
+
+  /**
    * The steps a prompt takes, in order, when a provider rejects a schema.
    * Defaults to `SCHEMA_FALLBACKS`.
    */
@@ -587,26 +593,30 @@ export interface ToolDefinition
   name: string;
   /** Description of what the tool does */
   description?: string;
-  /** Zod schema defining the tool's input parameters (raw — strict rewrites are applied lazily by the provider) */
-  parameters: z.ZodType<object>;
+  /**
+   * The tool's argument schema, bound for this call (an `a` schema). The
+   * provider renders it for the model with the rest of the request
+   * (`prepareRequest`); the prompt decodes the call through the same plan.
+   */
+  parameters: Bound<any>;
   /**
    * Strict-mode policy. See `ToolInput.strict` JSDoc for full semantics.
    *
    * - `true` — require strict (selection filter)
    * - `false` — force lenient
    * - `number > 0` (default `1`) — prefer strict, accept fallback; the
-   *   number is the priority for SchemaBudget allocation when there are
-   *   more strict-requesting tools than the descriptor's per-request slot
-   *   budget allows.
+   *   number is the priority when the request can't give every tool what it
+   *   asks for (strict slots, request totals, the provider's tool cap).
    */
   strict?: boolean | number;
+  /** How a call with bad arguments is told to the model (the tool's `errorFormat`). */
+  errorFormat?: ErrorFormatInput;
   /**
-   * The FormatDescriptor id the provider chose for this tool's wire shape, set
-   * during request building. Used by `Tool.parse` to apply the matching
-   * strictify before validating arguments. Absent until the request reaches a
-   * provider; absent altogether when the request runs against a non-strict model.
+   * The plan the request was prepared with (`prepareRequest`), pinned here so
+   * the prompt decodes the call the way it was sent. Absent until the
+   * request is planned.
    */
-  descriptor?: string;
+  plan?: RenderedRequest;
   /**
    * Takes its input as free text instead of JSON, optionally constrained by
    * a grammar. The text arrives as the `input` field, so the tool's schema
@@ -705,29 +715,38 @@ export interface SchemaFallback
 export type ErrorKind = 'model' | 'tool';
 
 /**
+ * A request message whose text depends on the model's schemas.
+ */
+export interface RequestTemplates
+{
+  /** The message (by identity) to replace. */
+  message: Message;
+  /** Its text for a plan. */
+  render: (plan: RenderedRequest) => Promise<string>;
+}
+
+/**
 * Response format options.
 *
 * - `text`: Plain text response.
 * - `json`: JSON formatted response.
-* - `z.ZodType<object, object>`: A Zod schema defining the expected response structure.
+* - an object: the output schema (an `a` schema, bound for this call).
 */
 export type ResponseFormat =
   | 'text'
   | 'json'
   | {
-      type: z.ZodType<object, object>,
+      type: Bound<any>,
       /**
        * Strict-mode policy. See `PromptInput.strict` for tri-state semantics.
        * `true` requires; `false` forces lenient; positive number prefers
-       * strict with that priority for SchemaBudget allocation.
+       * strict with that priority.
        */
       strict: boolean | number,
-      /**
-       * The FormatDescriptor id the provider chose for the wire shape, set
-       * during request building. Used by the Prompt validator to apply the
-       * matching strictify before parsing model output.
-       */
-      descriptor?: string,
+      /** How an answer that doesn't fit is told to the model (the prompt's `errorFormat`). */
+      errorFormat?: ErrorFormatInput,
+      /** The plan the request was prepared with (see `ToolDefinition.plan`). */
+      plan?: RenderedRequest,
       /**
        * Schema-delivery policy. See `SchemaDelivery`. Defaults to `'auto'`
        * (structured when expressible, prompt-text fallback otherwise).
@@ -878,6 +897,23 @@ export interface Request extends BaseRequest
   toolChoice?: ToolChoice;
   /** The expected response format. Defaults to text. */
   responseFormat?: ResponseFormat;
+  /**
+   * How bad answers are told to the model, for every schema in the request;
+   * a tool's or prompt's own `errorFormat` wins over it. A prompt sets it
+   * from `ctx.errorFormat`.
+   */
+  errorFormat?: ErrorFormatInput;
+  /**
+   * The plan of the request's schemas for the model it goes to. Set on the
+   * request a provider sends (`prepareRequest`).
+   */
+  plan?: RenderedRequest;
+  /**
+   * Text in the request that shows schema values (`{{encode}}`, `{{schema}}`,
+   * an encoder in a function-form instruction): `message` is re-rendered
+   * for the plan once the model is known (`prepareRequest`).
+   */
+  templates?: RequestTemplates;
   /** Reasoning configuration for reasoning-capable models */
   reason?: Reason;
   /** A key that can help optimize cache hit rates */

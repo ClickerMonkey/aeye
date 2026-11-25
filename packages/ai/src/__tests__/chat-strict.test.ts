@@ -9,7 +9,7 @@
  * - mixed: at least one `true` → required wins regardless of other tools.
  */
 
-import z from 'zod';
+import { a } from '@aeye/schema';
 import { AI } from '../ai';
 import { ChatAPI } from '../apis/chat';
 import type { ModelCapability, ModelParameter, Request } from '../types';
@@ -36,11 +36,11 @@ function makeChatAPI(): TestChatAPI {
   return new TestChatAPI(ai);
 }
 
-function toolDef(name: string, strict: boolean | number | undefined): Request['tools'][0] {
+function toolDef(name: string, strict: boolean | number | undefined): NonNullable<Request['tools']>[number] {
   return {
     name,
     description: `${name} tool`,
-    parameters: z.object({ x: z.string() }),
+    parameters: a.object({ x: a.string() }).bind(),
     strict,
   };
 }

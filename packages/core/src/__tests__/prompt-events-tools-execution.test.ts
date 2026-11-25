@@ -4,7 +4,7 @@
  * Comprehensive tests to achieve 100% coverage of prompt.ts
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool } from '../tool';
 import { Context, Message } from '../types';
@@ -60,7 +60,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'emitter',
         description: 'Emitter',
         instructions: 'Emit events',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -114,7 +114,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'immediate-tool',
         description: 'Immediate tool',
         instructions: 'Immediate',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'immediate-result'
       });
 
@@ -171,7 +171,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'seq1',
         description: 'Sequential 1',
         instructions: 'Seq 1',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -179,7 +179,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'seq2',
         description: 'Sequential 2',
         instructions: 'Seq 2',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value + 10
       });
 
@@ -222,7 +222,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'par1',
         description: 'Parallel 1',
         instructions: 'Par 1',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise(resolve => setTimeout(resolve, 10));
           return 'result1';
@@ -233,7 +233,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'par2',
         description: 'Parallel 2',
         instructions: 'Par 2',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise(resolve => setTimeout(resolve, 5));
           return 'result2';
@@ -281,7 +281,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'strict-parser',
         description: 'Strict parser',
         instructions: 'Parse strictly',
-        schema: z.object({ required: z.string() }),
+        schema: a.object({ required: a.string() }),
         call: (input) => input.required
       });
 
@@ -325,7 +325,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'thrower',
         description: 'Throws error',
         instructions: 'Throw',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Tool execution error');
         }
@@ -371,7 +371,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'success-tool',
         description: 'Success',
         instructions: 'Success',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'success'
       });
 
@@ -416,7 +416,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'content-checker',
         description: 'Content checker',
         instructions: 'Check content',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'checked'
       });
 
@@ -459,7 +459,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'unused-tool',
         description: 'Unused',
         instructions: 'Unused',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'unused'
       });
 
@@ -493,7 +493,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'reconfig-update',
         description: 'Reconfig update',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         reconfig: (stats, ctx) => {
           reconfigCalls++;
           if (reconfigCalls === 1) {
@@ -524,14 +524,14 @@ describe('Prompt 100% Coverage', () => {
   });
 
   describe('Output Validation and Schema Parsing', () => {
-    it('should handle ZodError during validation', async () => {
+    it('should retry when the output fails a schema check', async () => {
       const prompt = new Prompt({
         name: 'validation-error',
         description: 'Validation error',
         content: 'Extract',
-        schema: z.object({
-          name: z.string(),
-          age: z.number().positive()
+        schema: a.object({
+          name: a.string(),
+          age: a.number().positive()
         }),
       });
 
@@ -555,6 +555,11 @@ describe('Prompt 100% Coverage', () => {
 
       const result = await prompt.get('result', {}, ctx);
       expect(result).toEqual({ name: 'Alice', age: 25 });
+      // The retry tells the model which value broke which rule.
+      const retry = (executor as jest.Mock).mock.calls[1][0].messages as Array<{ role: string; content: unknown }>;
+      const corrective = retry.filter(m => m.role === 'user').map(m => String(m.content)).join(' | ');
+      expect(corrective).toContain('1 problem in your answer');
+      expect(corrective).toMatch(/age: .*(positive|greater than 0)/i);
     });
 
     it('should handle non-JSON response when schema expected', async () => {
@@ -562,7 +567,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'non-json',
         description: 'Non JSON',
         content: 'Extract',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
       });
 
       const executor = createMockExecutor({
@@ -810,7 +815,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'bad-parser',
         description: 'Bad parser',
         instructions: 'Parse badly',
-        schema: z.object({ value: z.string().min(10) }), // Strict validation
+        schema: a.object({ value: a.string().min(10) }), // Strict validation
         call: (input) => input.value
       });
 
@@ -854,7 +859,7 @@ describe('Prompt 100% Coverage', () => {
         name: 'runtime-error',
         description: 'Runtime error',
         instructions: 'Runtime error',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Runtime execution error');
         }

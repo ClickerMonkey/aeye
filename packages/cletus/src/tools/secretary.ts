@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
 
@@ -15,8 +15,8 @@ Example: To switch to a coding-focused assistant:
 { "name": "coder" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      name: z.string().describe('Assistant name'),
+    schema: a.object({
+      name: a.string().describe('Assistant name'),
       ...globalToolProperties,
     }),
     input: getOperationInput('assistant_switch'),
@@ -32,9 +32,9 @@ Example: To make an assistant more concise:
 { "name": "helper", "prompt": "You are a helpful assistant. Always give concise, direct answers without unnecessary explanation." }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      name: z.string().describe('Assistant name'),
-      prompt: z.string().describe('New system prompt'),
+    schema: a.object({
+      name: a.string().describe('Assistant name'),
+      prompt: a.string().describe('New system prompt'),
       ...globalToolProperties,
     }),
     input: getOperationInput('assistant_update'),
@@ -50,9 +50,9 @@ Example: Create a specialized writing coach:
 { "name": "writer", "prompt": "You are a creative writing coach who helps users improve their prose, providing constructive feedback on style, structure, and narrative flow." }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      name: z.string().describe('Assistant name'),
-      prompt: z.string().describe('System prompt for the assistant'),
+    schema: a.object({
+      name: a.string().describe('Assistant name'),
+      prompt: a.string().describe('System prompt for the assistant'),
       ...globalToolProperties,
     }),
     input: getOperationInput('assistant_add'),
@@ -68,7 +68,7 @@ Example: Simply call with no parameters:
 {}
  
 {{modeInstructions}}`,
-    schema: z.object({
+    schema: a.object({
       ...globalToolProperties,
     }),
     input: getOperationInput('memory_list'),
@@ -84,8 +84,8 @@ Example: Store a user preference:
 { "content": "User prefers TypeScript over JavaScript for all new projects" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      content: z.string().describe('Memory content to add or update'),
+    schema: a.object({
+      content: a.string().describe('Memory content to add or update'),
       ...globalToolProperties,
     }),
     input: getOperationInput('memory_update'),

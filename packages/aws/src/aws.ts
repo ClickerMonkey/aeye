@@ -16,27 +16,25 @@ import type {
   ModelInfo,
   Provider
 } from '@aeye/ai';
-import { allocateToolDescriptors, buildSchemaBudget, embeddingInputs, isEmbeddingImage, isModelInfo } from '@aeye/ai';
+import { embeddingInputs, isEmbeddingImage, isModelInfo } from '@aeye/ai';
 import {
   Chunk,
   deliverSchema,
-  type DescriptorFamily,
   describeTool,
   Executor,
   getModel,
   getResponseFromChunks,
-  LENIENT,
   type Model,
   ModelInput,
   type Reasoning,
   forcesTool,
+  prepareRequest,
   Request,
   Response,
-  type SchemaBudget,
   schemaRejection,
-  strictify,
+  sentOutput,
+  sentTools,
   Streamer,
-  toJSONSchema,
   ToolCall,
   withAllowedTools,
 } from '@aeye/core';
@@ -404,8 +402,8 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      // Converse has no structured output or JSON mode, so a schema goes in the prompt
-      return self.executeWithConverse(modelInput, deliverSchema(request), ctx);
+      // The request's schemas are planned for the model when it's converted
+      return self.executeWithConverse(modelInput, request, ctx);
     };
   }
 
@@ -425,7 +423,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      yield* self.streamWithConverse(modelInput, deliverSchema(request), ctx);
+      yield* self.streamWithConverse(modelInput, request, ctx);
     };
   }
 
@@ -479,21 +477,22 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   private async convertRequestToConverse(model: Model, request: Request, ctx?: AIContextAny): Promise<Omit<ConverseCommandInput, 'guardrailConfig'>> {
     const info = pickAwsModelInfo(model, ctx);
     const modelId = await this.resolveModelId(model.id, info);
-    // Built the same way as the OpenAI provider's so strictness selection
-    // stays consistent across tools and structured output.
-    const budget = buildSchemaBudget(info ?? { id: model.id, provider: this.name }, this.supportedStrictFamilies);
+    // The request's schemas, planned for the model as the OpenAI provider
+    // plans them: strict slots, Anthropic's request totals, prompt text for
+    // an output Converse can't take.
+    const planned = await prepareRequest(request, info ?? { id: model.id, provider: this.name }, { speaks: this.supportedStrictFamilies });
     // Bedrock can't limit which tools a model calls, so only the allowed ones are sent
-    const allowed = withAllowedTools(request);
+    const allowed = withAllowedTools(planned);
     // Claude that always thinks can't be forced to call a tool, so it's
     // offered only the forced tools instead
     const choice = allowed.toolChoice;
     const offered = ALWAYS_THINKING_CLAUDE.test(modelId) && forcesTool(choice)
       ? withAllowedTools({ ...allowed, toolChoice: { allowed: typeof choice === 'object' && 'tool' in choice ? [choice.tool] : (allowed.tools ?? []).map(tool => tool.name) } })
       : allowed;
-    const toolConfig = this.convertToolsToConverse(offered, budget);
-    const textFormat = this.convertResponseFormat(request, budget);
-    // A schema Converse can't take natively goes in the prompt
-    const sent = typeof request.responseFormat === 'object' && !textFormat ? deliverSchema(request, LENIENT, 'prompt') : request;
+    const toolConfig = this.convertToolsToConverse(offered);
+    const textFormat = this.convertResponseFormat(planned);
+    // A schema Converse can't take natively (not strict) goes in the prompt
+    const sent = typeof planned.responseFormat === 'object' && !textFormat ? deliverSchema(planned, 'prompt') : planned;
     const maxTokens = request.maxTokens ?? (info ?? model).maxOutputTokens;
     const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(offered.toolChoice));
     const fields = reasoning.fields || request.extra ? { ...reasoning.fields, ...request.extra } : undefined;
@@ -637,21 +636,19 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   /**
    * Convert @aeye/core tool definitions to AWS Bedrock Converse API tool format.
    *
-   * Strict-tool support is best-effort and per-model: the budget's
-   * descriptor comes from `buildSchemaBudget` (see `@aeye/ai`). Bedrock
-   * surfaces both Anthropic-family Claude models and (in some regions)
-   * OpenAI-shaped tools. Models without strict support use their family's
-   * non-strict descriptor, and models without a family Bedrock speaks fall
-   * back to LENIENT — silent degradation. Tools with a strict descriptor are
-   * sent with Converse's `strict` flag, which constrains the model's calls to
-   * the schema. The chosen descriptor is pinned on each
-   * `ToolDefinition.descriptor` so the Prompt loop can apply the matching
-   * strictify when validating tool arguments.
+   * Strict-tool support is best-effort and per-model: the request is
+   * planned for the model (`prepareRequest`). Bedrock surfaces both
+   * Anthropic-family Claude models and (in some regions) OpenAI-shaped
+   * tools. Models without strict support get their family's non-strict
+   * rendering, and models without a family Bedrock speaks the lenient one.
+   * Tools rendered strict are sent with Converse's `strict` flag, which
+   * constrains the model's calls to the schema; the prompt decodes each call
+   * through the same plan.
    *
    * Anthropic enforces per-request limits (20 strict tools, 24 optional
-   * params, 16 union types across the whole request) — those are tracked
-   * by the shared `SchemaBudget` so over-budget tools degrade to LENIENT
-   * silently rather than failing the API call.
+   * params, 16 union types across the whole request): the plan fits the
+   * request to them, the least wanted tools going non-strict (still
+   * validated) rather than failing the API call.
    *
    * Converse has no free-text tools, so those go as their one-field function
    * with any grammar in the description. It has no `none` choice either, so
@@ -660,28 +657,21 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    */
   private convertToolsToConverse(
     request: Request,
-    budget: SchemaBudget,
   ): ConverseCommandInput['toolConfig'] {
     if (!request.tools || request.tools.length === 0) return undefined;
     const choice = request.toolChoice;
     if (choice === 'none' && !request.messages.some(m => m.role === 'tool' || m.toolCalls?.length)) return undefined;
 
-    const descriptors = allocateToolDescriptors(request.tools, budget);
-
-    const tools = request.tools.map((tool, i): BedrockTool => {
-      const descriptor = descriptors[i];
-      const strictifiedSchema = strictify(tool.parameters, descriptor);
-      return {
-        toolSpec: {
-          name: tool.name,
-          description: describeTool(tool),
-          inputSchema: {
-            json: toDocument(JSON.stringify(toJSONSchema(strictifiedSchema, descriptor))),
-          },
-          strict: descriptor.strict || undefined,
+    const tools = sentTools(request).map((tool): BedrockTool => ({
+      toolSpec: {
+        name: tool.name,
+        description: tool.definition ? describeTool(tool.definition) : tool.description,
+        inputSchema: {
+          json: toDocument(JSON.stringify(tool.parameters)),
         },
-      };
-    });
+        strict: tool.strict || undefined,
+      },
+    }));
 
     const toolChoice: BedrockToolChoice | undefined =
       choice === 'auto' ? { auto: {} }
@@ -695,33 +685,28 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   /**
    * Convert a schema response format to Converse structured output. Converse
    * rejects schemas outside its strict subset, so a schema goes only when the
-   * model's strict descriptor can shape it; the descriptor is pinned on the
-   * format so the Prompt validator can apply the matching strictify. Plain
-   * JSON has no Converse mode.
+   * plan rendered it strict; otherwise it goes in the prompt. Plain JSON has
+   * no Converse mode.
    */
-  private convertResponseFormat(request: Request, budget: SchemaBudget): OutputFormat | undefined {
-    const format = request.responseFormat;
-    if (typeof format !== 'object') return undefined;
-
-    const descriptor = budget.allocateOutput(format.type, format.strict ?? 1);
-    if (!descriptor.strict) return undefined;
-    format.descriptor = descriptor.id;
+  private convertResponseFormat(request: Request): OutputFormat | undefined {
+    const output = sentOutput(request);
+    if (!output?.strict) return undefined;
 
     return {
       type: 'json_schema',
       structure: {
-        jsonSchema: { name: 'response', schema: JSON.stringify(toJSONSchema(strictify(format.type, descriptor), descriptor)) },
+        jsonSchema: { name: 'response', schema: JSON.stringify(output.schema) },
       },
     };
   }
 
   /**
-   * The set of strict descriptor families this provider can speak through
-   * Bedrock. Defaults to `['openai', 'anthropic', 'google']` — Bedrock
+   * The schema families (`@aeye/schema` profiles) this provider can speak
+   * through Bedrock. Defaults to `['openai', 'anthropic', 'google']` — Bedrock
    * surfaces all three. Subclasses can extend to accept custom registered
    * families.
    */
-  protected supportedStrictFamilies: ReadonlySet<DescriptorFamily> = new Set<DescriptorFamily>(['openai', 'anthropic', 'google']);
+  protected supportedStrictFamilies: ReadonlySet<string> = new Set<string>(['openai', 'anthropic', 'google']);
 
   // ============================================================================
   // Image Generation (Stability AI)

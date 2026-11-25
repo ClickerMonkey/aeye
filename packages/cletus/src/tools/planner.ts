@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
 
@@ -15,7 +15,7 @@ Example: Simply call with no parameters:
 {}
  
 {{modeInstructions}}`,
-    schema: z.object({
+    schema: a.object({
       ...globalToolProperties,
     }),
     input: getOperationInput('todos_clear'),
@@ -31,7 +31,7 @@ Example: Simply call with no parameters:
 {}
  
 {{modeInstructions}}`,
-    schema: z.object({
+    schema: a.object({
       ...globalToolProperties,
     }),
     input: getOperationInput('todos_list'),
@@ -47,8 +47,8 @@ Example: Add a task to implement a feature:
 { "name": "Implement user authentication with OAuth" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      name: z.string().describe('The todo name/description'),
+    schema: a.object({
+      name: a.string().describe('The todo name/description'),
       ...globalToolProperties,
     }),
     metadata: { defaultVisible: true },
@@ -65,8 +65,8 @@ Example: Mark a todo as done:
 { "id": "abc-123-def" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      id: z.string().describe('The todo ID to mark as done'),
+    schema: a.object({
+      id: a.string().describe('The todo ID to mark as done'),
       ...globalToolProperties,
     }),
     metadata: { defaultVisible: true },
@@ -83,8 +83,8 @@ Example: Get details for a specific todo:
 { "id": "abc-123-def" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      id: z.string().describe('The todo ID'),
+    schema: a.object({
+      id: a.string().describe('The todo ID'),
       ...globalToolProperties,
     }),
     input: getOperationInput('todos_get'),
@@ -100,8 +100,8 @@ Example: Remove a todo:
 { "id": "abc-123-def" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      id: z.string().describe('The todo ID to remove'),
+    schema: a.object({
+      id: a.string().describe('The todo ID to remove'),
       ...globalToolProperties,
     }),
     input: getOperationInput('todos_remove'),
@@ -118,11 +118,11 @@ Example: Replace with a new project plan:
 { "todos": [{ "name": "Set up project structure", "done": false }, { "name": "Implement core features", "done": false }, { "name": "Write tests", "done": false }] }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      todos: z.array(
-        z.object({
-          name: z.string(),
-          done: z.boolean().optional(),
+    schema: a.object({
+      todos: a.array(
+        a.object({
+          name: a.string(),
+          done: a.boolean().optional(),
         })
       ).describe('Array of new todos'),
       ...globalToolProperties,

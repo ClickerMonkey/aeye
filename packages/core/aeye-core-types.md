@@ -82,9 +82,10 @@ interface MessageContent {           // type: 'text' | 'image' | 'file' | 'audio
 interface ToolCall { id: string; name: string; arguments: string; } // arguments = JSON string
 interface ToolDefinition {
   name: string; description?: string;
-  parameters: z.ZodType<object>;     // raw Zod; strictify applied lazily by provider
+  parameters: Bound<unknown>;        // the bound `a` schema; rendered by the provider's plan
   strict?: boolean | number;
-  descriptor?: string;               // FormatDescriptor id chosen at request build time
+  errorFormat?: ErrorFormatInput;    // how bad args are told to the model
+  plan?: RenderedRequest;            // pinned by prepareRequest; the prompt decodes through it
 }
 ```
 
@@ -105,7 +106,7 @@ interface Request extends BaseRequest {   // BaseRequest: { model?: ModelInput; 
   tools?: ToolDefinition[];
   toolsOneAtATime?: boolean;
   toolChoice?: ToolChoice;        // 'auto' | 'none' | 'required' | { tool: string }
-  responseFormat?: ResponseFormat;// 'text' | 'json' | { type: ZodType, strict, descriptor? }
+  responseFormat?: ResponseFormat;// 'text' | 'json' | { type: Bound, strict, schemaDelivery?, errorFormat?, plan? }
   reason?: { effort?: 'low'|'medium'|'high'; maxTokens?: number };
   cacheKey?: string;
   userKey?: string;

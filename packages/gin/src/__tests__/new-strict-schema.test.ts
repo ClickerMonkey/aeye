@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { toJSONSchema } from '@aeye/core';
+import { fromZod, getProfile } from '@aeye/core';
 import { createRegistry, buildSchemas } from '../index';
 import { NewExpr } from '../exprs/new';
 
@@ -31,8 +31,9 @@ describe('NewExpr strict schema — full registry + custom types', () => {
     const opts = buildSchemas(r, { newStrict: true });
     const newSchema = NewExpr.toSchema(opts);
 
-    // Convert to JSON Schema via @aeye/core in strict mode (OpenAI-compatible).
-    const jsonSchema = toJSONSchema(newSchema, { strict: true });
+    // Render it as core now sends it to an OpenAI strict model: through core's
+    // temporary zod bridge into @aeye/schema (gin produces `a` in step 2).
+    const jsonSchema = fromZod(newSchema).bind().render(getProfile('openai-strict')!).jsonSchema;
 
     // --- THE BARF ---
     // Stringify with indentation so we can see the full shape.
@@ -49,15 +50,17 @@ describe('NewExpr strict schema — full registry + custom types', () => {
       const key = ref.replace(/^#\/\$defs\//, '');
       return defs[key];
     };
-    const rootUnion = resolve(jsonSchema) as { anyOf?: unknown[] };
+    // OpenAI strict wants an object root: a union root is sent as `{ input: … }`.
+    const top = resolve(jsonSchema) as { properties?: { input?: unknown } };
+    const rootUnion = resolve(top.properties?.input ?? top) as { anyOf?: unknown[] };
     expect(rootUnion).toHaveProperty('anyOf');
     const branches = rootUnion.anyOf!;
     expect(branches.length).toBeGreaterThan(1);
     const branchNames = branches.map((b) => {
       const branch = resolve(b) as { properties?: { type?: unknown } };
       const typeSchema = resolve(branch.properties?.type) as
-        { properties?: { name?: { const?: string } } } | undefined;
-      return typeSchema?.properties?.name?.const;
+        { properties?: { name?: { const?: string; enum?: string[] } } } | undefined;
+      return typeSchema?.properties?.name?.const ?? typeSchema?.properties?.name?.enum?.[0];
     });
     expect(branchNames).toContain('Pair');
     expect(branchNames).toContain('num');

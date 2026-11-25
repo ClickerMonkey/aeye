@@ -3,7 +3,7 @@
  * down `SCHEMA_FALLBACKS` (or its own list) and the request goes again.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { deliverSchema, SCHEMA_FALLBACKS, schemaRejection } from '../delivery';
 import { SchemaRejectedError } from '../errors';
 import { Prompt, PromptEvent } from '../prompt';
@@ -49,7 +49,7 @@ function outputPrompt(extra?: { schemaFallbacks?: readonly SchemaFallback[]; run
     name: 'fallbacks',
     description: 'Schema fallbacks',
     content: 'Answer.',
-    schema: z.object({ value: z.number() }),
+    schema: a.object({ value: a.number() }),
     outputRetries: 0,
     ...extra,
   });
@@ -85,14 +85,14 @@ describe('schema fallbacks', () => {
       name: 'lookup',
       description: 'Looks up',
       instructions: 'Look up',
-      schema: z.object({ q: z.string() }),
+      schema: a.object({ q: a.string() }),
       call: () => 'found',
     });
     const other = new Tool({
       name: 'other',
       description: 'Other',
       instructions: 'Other',
-      schema: z.object({ q: z.string() }),
+      schema: a.object({ q: a.string() }),
       call: () => 'other',
     });
     const execute = rejectingExecutor(
@@ -117,7 +117,7 @@ describe('schema fallbacks', () => {
 
   it('re-applies the step after a dynamic prompt re-resolves its request', async () => {
     const sent: Sent[] = [];
-    const ping = new Tool({ name: 'ping', description: 'Ping', instructions: 'Ping', schema: z.object({}), call: () => 'pong' });
+    const ping = new Tool({ name: 'ping', description: 'Ping', instructions: 'Ping', schema: a.object({}), call: () => 'pong' });
     const execute = rejectingExecutor(
       { kind: 'output' },
       request => typeof request.responseFormat === 'object' && request.responseFormat.strict !== false,
@@ -131,7 +131,7 @@ describe('schema fallbacks', () => {
       name: 'dynamic',
       description: 'Dynamic',
       content: 'Answer.',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       tools: [ping],
       dynamic: true,
     });
@@ -179,8 +179,8 @@ describe('schema fallbacks', () => {
 });
 
 describe('schemaRejection', () => {
-  const tool = (name: string) => ({ name, parameters: z.object({}) });
-  const withOutput: Request = { messages: [], tools: [tool('a'), tool('b')], responseFormat: { type: z.object({}), strict: 1 } };
+  const tool = (name: string) => ({ name, parameters: a.object({}).bind() });
+  const withOutput: Request = { messages: [], tools: [tool('a'), tool('b')], responseFormat: { type: a.object({}).bind(), strict: 1 } };
   const toolsOnly: Request = { messages: [], tools: [tool('a'), tool('b')] };
 
   it.each([
@@ -202,7 +202,7 @@ describe('schemaRejection', () => {
 describe('deliverSchema', () => {
   const request = (schemaDelivery: 'auto' | 'json' | 'prompt'): Request => ({
     messages: [{ role: 'system', content: 'Answer.' }],
-    responseFormat: { type: z.object({ value: z.number() }), strict: 1, schemaDelivery },
+    responseFormat: { type: a.object({ value: a.number() }).bind(), strict: 1, schemaDelivery },
   });
 
   it('sends a structured schema as is', () => {
@@ -214,11 +214,14 @@ describe('deliverSchema', () => {
     const original = request(delivery);
     const sent = deliverSchema(original);
     expect(sent.responseFormat).toBe(format);
-    expect(sent.messages[0].content).toContain('"value"');
+    expect(sent.messages[0].content).toContain('The response must be JSON of this type:');
+    expect(sent.messages[0].content).toContain('{ value: number }');
     expect(original.messages[0].content).toBe('Answer.');
   });
 
   it('can force a delivery, for providers without structured output', () => {
-    expect(deliverSchema(request('auto'), undefined, 'prompt').responseFormat).toBeUndefined();
+    const sent = deliverSchema(request('auto'), 'prompt');
+    expect(sent.responseFormat).toBeUndefined();
+    expect(sent.messages[0].content).toContain('The response must be JSON of this type:');
   });
 });

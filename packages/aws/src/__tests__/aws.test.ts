@@ -5,9 +5,9 @@
  * For integration tests with real AWS credentials, see __integration__ tests.
  */
 
-import z from 'zod';
-import type { Chunk, ModelInfo } from '@aeye/core';
-import { buildSchemaBudget } from '@aeye/ai';
+import { a } from '@aeye/schema';
+import { prepareRequest, type Chunk, type Request, type ToolDefinition } from '@aeye/core';
+import type { ModelInfo } from '@aeye/ai';
 import { AWSBedrockProvider, type AWSBedrockConfig } from '../aws';
 import { AWSError, AWSAuthError, AWSRateLimitError } from '../types';
 import { detectAWSCapabilities, detectAWSFamily, detectAWSTier } from '../common';
@@ -338,20 +338,19 @@ describe('AWSBedrockProvider — streaming tool-call assembly', () => {
 /**
  * Tool-schema emission tests.
  *
- * The AWS provider feeds tool schemas through the same
- * `strictify` + `toJSONSchema` pipeline that OpenAI does, with the
- * descriptor picked by the shared `buildSchemaBudget` against
- * `supportedStrictFamilies` and gated by the model's `toolsStrict` capability.
+ * The AWS provider plans the request's schemas for the model as the OpenAI
+ * provider does (`prepareRequest` with `supportedStrictFamilies`), gated by
+ * the model's `toolsStrict` capability, and sends `sentTools(request)`.
  * These tests verify:
  *
- * 1. A recursive schema sent to a Claude model uses `ANTHROPIC_STRICT` and is
- *    cycle-broken inline (no `$ref` back-edges that would trigger Anthropic's
- *    "Circular reference detected" rejection).
- * 2. The same recursive schema emitted for a model WITHOUT `toolsStrict`
- *    capability degrades to the family's non-strict descriptor (LENIENT
- *    shaped, so it preserves the recursive `$ref` — not strict-shape-bound).
- * 3. Each emitted tool has its `descriptor` pinned for the Prompt loop's
- *    parse-time strictify roundtrip.
+ * 1. A recursive schema sent to a Claude model with `toolsStrict` goes strict
+ *    in Anthropic's strict dialect, which has no recursion: the recursive
+ *    part is written as JSON text, so there are no `$ref` back-edges that
+ *    would trigger Anthropic's "Circular reference detected" rejection.
+ * 2. The same recursive schema for a model WITHOUT `toolsStrict` goes in the
+ *    family's non-strict dialect, which keeps the recursive `$ref`.
+ * 3. Each tool has the plan pinned (`ToolDefinition.plan`) for the Prompt
+ *    loop's decode of the call.
  */
 describe('AWSBedrockProvider — tool schema emission', () => {
   const config: AWSBedrockConfig = {
@@ -373,9 +372,10 @@ describe('AWSBedrockProvider — tool schema emission', () => {
     };
   }
 
-  /** Convert a request's tools with the budget the provider builds for `model`. */
-  function convertTools(provider: AWSBedrockProvider, request: any, model: ModelInfo) {
-    return (provider as any).convertToolsToConverse(request, buildSchemaBudget(model, (provider as any).supportedStrictFamilies));
+  /** Convert a request's tools as the provider does for `model`: planned, then sent. */
+  async function convertTools(provider: AWSBedrockProvider, request: Request, model: ModelInfo) {
+    const planned = await prepareRequest(request, model, { speaks: (provider as any).supportedStrictFamilies });
+    return (provider as any).convertToolsToConverse(planned);
   }
 
   /** Walk a JSON Schema and collect every `$ref` string. */
@@ -399,85 +399,71 @@ describe('AWSBedrockProvider — tool schema emission', () => {
     return refs;
   }
 
-  it('sends a recursive tool non-strict (keeps $ref) even when the Claude model has toolsStrict', () => {
-    type Node = { value: string; children?: Node[] };
-    const NodeSchema: z.ZodType<Node> = z.lazy(() =>
-      z.object({ value: z.string(), children: z.array(NodeSchema).optional() }),
-    );
+  const Tree = a
+    .define({ Node: a.object({ value: a.string(), children: a.array(a.ref('Node')).optional() }) })
+    .result('Node');
 
+  const treeTool = (): ToolDefinition => ({
+    name: 'walkTree',
+    description: 'Walk a tree',
+    parameters: Tree.bind(),
+    strict: true,
+  });
+
+  it('sends a recursive tool strict, with the recursion as JSON text, when the Claude model has toolsStrict', async () => {
     const provider = new AWSBedrockProvider(config);
-    const tool = {
-      name: 'walkTree',
-      description: 'Walk a tree',
-      parameters: NodeSchema,
-      strict: true as const,
-      run: () => '',
-    };
-    const request = { messages: [], tools: [tool] };
-    const toolConfig = convertTools(provider, request, anthropicModel(true));
+    const tool = treeTool();
+    const toolConfig = await convertTools(provider, { messages: [], tools: [tool] }, anthropicModel(true));
 
     expect(toolConfig).toBeDefined();
     expect(toolConfig.tools).toHaveLength(1);
+    expect(toolConfig.tools[0].toolSpec.strict).toBe(true);
     const inputSchema = toolConfig.tools[0].toolSpec.inputSchema.json;
+    // Anthropic strict has no recursion: no `$ref` back-edges on the wire.
+    expect(collectRefs(inputSchema)).toEqual([]);
 
-    // Anthropic strict can't spell the cycle-breaker's open-object
-    // placeholder (it rejects `additionalProperties: true`), so the tool goes
-    // out non-strict, where the recursive `$ref` is accepted.
-    expect(collectRefs(inputSchema)).toEqual(['#']);
-
-    // Descriptor was pinned on the tool for the parse-time roundtrip.
-    expect((tool as any).descriptor).toBe('anthropic-non-strict');
+    // The plan was pinned on the tool for the decode of its calls.
+    const entry = tool.plan!.get('walkTree');
+    expect(entry.profile.family).toBe('anthropic');
+    expect(entry.strict).toBe(true);
+    // ...which decodes the JSON-text recursion back to the code shape.
+    const wire = entry.encode({ value: 'root', children: [{ value: 'leaf' }] });
+    const decoded = entry.parse(wire);
+    expect(decoded.ok && decoded.value).toEqual({ value: 'root', children: [{ value: 'leaf' }] });
   });
 
-  it('falls back to the non-strict dialect (keeps $ref) when the Claude model lacks toolsStrict capability', () => {
-    type Node = { value: string; children?: Node[] };
-    const NodeSchema: z.ZodType<Node> = z.lazy(() =>
-      z.object({ value: z.string(), children: z.array(NodeSchema).optional() }),
-    );
-
+  it('falls back to the non-strict dialect (keeps $ref) when the Claude model lacks toolsStrict capability', async () => {
     const provider = new AWSBedrockProvider(config);
-    const tool = {
-      name: 'walkTree',
-      description: 'Walk a tree',
-      parameters: NodeSchema,
-      strict: true as const,
-      run: () => '',
-    };
-    const request = { messages: [], tools: [tool] };
-    const toolConfig = convertTools(provider, request, anthropicModel(false));
+    const tool = treeTool();
+    const toolConfig = await convertTools(provider, { messages: [], tools: [tool] }, anthropicModel(false));
 
-    // No toolsStrict → the family's non-strict descriptor, which is LENIENT
-    // with a family tag and so recursion-supporting. We expect a $ref and the
-    // descriptor pinned to 'anthropic-non-strict' for the parse roundtrip.
     expect(toolConfig.tools).toHaveLength(1);
+    expect(toolConfig.tools[0].toolSpec.strict).toBeUndefined();
     const inputSchema = toolConfig.tools[0].toolSpec.inputSchema.json;
     expect(collectRefs(inputSchema).length).toBeGreaterThan(0);
-    expect((tool as any).descriptor).toBe('anthropic-non-strict');
+    const entry = tool.plan!.get('walkTree');
+    expect(entry.profile.family).toBe('anthropic');
+    expect(entry.strict).toBe(false);
   });
 
-  it('non-recursive shared refs survive under ANTHROPIC_STRICT (only cycles are broken)', () => {
-    // Use `aid` rather than `id` for the shared-schema marker. Both promote
-    // the schema to a `$defs` entry of the same name in `toJSONSchema`, but
-    // `aid` skips zod's globalRegistry uniqueness check — important because
-    // `strictify` re-applies the meta on its rebuilt clones, which would
-    // otherwise trigger "ID Person already exists in the registry".
-    const Person = z.object({ name: z.string(), age: z.number() }).meta({ aid: 'Person' });
-    const schema = z.object({ author: Person, reviewer: Person });
+  it('non-recursive shared named types survive under Anthropic strict as $defs', async () => {
+    const Doc = a
+      .define({ Person: a.object({ name: a.string(), age: a.number() }) })
+      .result(a.object({ author: a.ref('Person'), reviewer: a.ref('Person') }));
 
     const provider = new AWSBedrockProvider(config);
-    const tool = {
+    const tool: ToolDefinition = {
       name: 'attribute',
       description: 'Attribute a document',
-      parameters: schema,
-      strict: true as const,
-      run: () => '',
+      parameters: Doc.bind(),
+      strict: true,
     };
-    const request = { messages: [], tools: [tool] };
-    const toolConfig = convertTools(provider, request, anthropicModel(true));
+    const toolConfig = await convertTools(provider, { messages: [], tools: [tool] }, anthropicModel(true));
 
     const inputSchema = toolConfig.tools[0].toolSpec.inputSchema.json;
-    // Shared Person is promoted to $defs and referenced — non-cyclic, so the
-    // cycle-breaker leaves it alone. Anthropic accepts non-cyclic $refs.
+    expect(toolConfig.tools[0].toolSpec.strict).toBe(true);
+    // Shared Person is a `$defs` entry, referenced twice — non-cyclic, which
+    // Anthropic accepts.
     expect(inputSchema.$defs?.Person).toBeDefined();
     expect(collectRefs(inputSchema)).toContain('#/$defs/Person');
   });

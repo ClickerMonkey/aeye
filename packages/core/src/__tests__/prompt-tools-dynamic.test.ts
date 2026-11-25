@@ -2,7 +2,7 @@
  * Tests for dynamic functionality in Prompt
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context } from '../types';
@@ -17,7 +17,7 @@ describe('Prompt dynamic', () => {
       name: 'conditional-tool',
       description: 'Tool that becomes unavailable after first check',
       instructions: 'Use this tool',
-      schema: z.object({ value: z.string() }),
+      schema: a.object({ value: a.string() }),
       call: (args) => `Called with: ${args.value}`,
       applicable: async () => {
         toolApplicableCalls++;
@@ -30,7 +30,7 @@ describe('Prompt dynamic', () => {
       name: 'always-tool',
       description: 'Tool that is always available',
       instructions: 'Always available',
-      schema: z.object({ value: z.string() }),
+      schema: a.object({ value: a.string() }),
       call: (args) => `Always: ${args.value}`,
       applicable: async () => true
     });
@@ -99,7 +99,7 @@ describe('Prompt dynamic', () => {
       name: 'conditional-tool',
       description: 'Tool with applicable check',
       instructions: 'Use this tool',
-      schema: z.object({ value: z.string() }),
+      schema: a.object({ value: a.string() }),
       call: (args) => `Called with: ${args.value}`,
       applicable: async () => {
         toolApplicableCalls++;
@@ -158,7 +158,7 @@ describe('Prompt dynamic', () => {
       name: 'tool1',
       description: 'First tool',
       instructions: 'Tool 1',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result1'
     });
 
@@ -166,7 +166,7 @@ describe('Prompt dynamic', () => {
       name: 'tool2',
       description: 'Second tool',
       instructions: 'Tool 2',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result2'
     });
 
@@ -235,7 +235,7 @@ describe('Prompt dynamic', () => {
       name: 'disappearing-tool',
       description: 'Tool that disappears',
       instructions: 'Use this',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result',
       applicable: async () => {
         applicableCallCount++;
@@ -302,7 +302,7 @@ describe('Prompt dynamic', () => {
       name: 'test-tool',
       description: 'Test tool',
       instructions: 'Test',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result',
       applicable: async () => {
         applicableCalls++;
@@ -340,7 +340,7 @@ describe('Prompt dynamic', () => {
       name: 'applicable-tool',
       description: 'Applicable',
       instructions: 'Available',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result',
       applicable: async () => true
     });
@@ -349,7 +349,7 @@ describe('Prompt dynamic', () => {
       name: 'not-applicable-tool',
       description: 'Not applicable',
       instructions: 'Not available',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result',
       applicable: async () => false
     });
@@ -446,7 +446,7 @@ describe('Prompt dynamic', () => {
       name: 'test-tool',
       description: 'Test',
       instructions: 'Test',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result'
     });
 
@@ -503,7 +503,7 @@ describe('Prompt dynamic', () => {
       name: 'predefined-tool',
       description: 'A predefined tool',
       instructions: 'Use this predefined tool',
-      schema: z.object({ value: z.string() }),
+      schema: a.object({ value: a.string() }),
       call: (args) => `Predefined: ${args.value}`
     });
 
@@ -512,7 +512,7 @@ describe('Prompt dynamic', () => {
       name: 'dynamic-tool',
       description: 'A dynamic tool',
       instructions: 'Use this dynamic tool',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: (args) => `Dynamic: ${args.query}`
     });
 
@@ -565,7 +565,7 @@ describe('Prompt dynamic', () => {
       name: 'predefined-1',
       description: 'First predefined tool',
       instructions: 'Use predefined 1',
-      schema: z.object({ val: z.string() }),
+      schema: a.object({ val: a.string() }),
       call: (args) => `P1: ${args.val}`
     });
 
@@ -573,7 +573,7 @@ describe('Prompt dynamic', () => {
       name: 'predefined-2',
       description: 'Second predefined tool',
       instructions: 'Use predefined 2',
-      schema: z.object({ val: z.string() }),
+      schema: a.object({ val: a.string() }),
       call: (args) => `P2: ${args.val}`
     });
 
@@ -582,7 +582,7 @@ describe('Prompt dynamic', () => {
       name: 'dynamic-search',
       description: 'Dynamic search tool',
       instructions: 'Use dynamic search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: (args) => `Search: ${args.query}`
     });
 
@@ -645,7 +645,7 @@ describe('Prompt dynamic', () => {
       name: 'applicable-dynamic',
       description: 'Dynamic tool with applicability',
       instructions: 'Use this',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'result',
       applicable: async () => {
         applicableCalls++;
@@ -684,7 +684,7 @@ describe('Prompt dynamic', () => {
       name: 'applicable-dynamic',
       description: 'Applicable dynamic tool',
       instructions: 'Use this',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'applicable result',
       applicable: async () => true
     });
@@ -694,7 +694,7 @@ describe('Prompt dynamic', () => {
       name: 'not-applicable-dynamic',
       description: 'Not applicable dynamic tool',
       instructions: 'Should not appear',
-      schema: z.object({}),
+      schema: a.object({}),
       call: () => 'should not be called',
       applicable: async () => false
     });
@@ -738,7 +738,7 @@ describe('Prompt dynamic', () => {
       name: 'person_search',
       description: 'Search for people',
       instructions: 'Use to search for people by name',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: (args) => `Found person: ${args.query}`
     });
 
@@ -746,7 +746,7 @@ describe('Prompt dynamic', () => {
       name: 'task_search',
       description: 'Search for tasks',
       instructions: 'Use to search for tasks by title',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: (args) => `Found task: ${args.query}`
     });
 
@@ -754,7 +754,7 @@ describe('Prompt dynamic', () => {
       name: 'project_search',
       description: 'Search for projects',
       instructions: 'Use to search for projects',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: (args) => `Found project: ${args.query}`
     });
 
@@ -817,8 +817,8 @@ describe('Prompt dynamic', () => {
 
 describe('tools that do not compile', () => {
   it('offers a tool without instructions, adding nothing to the tools section', async () => {
-    const plain = new Tool({ name: 'plain', description: 'Plain', schema: z.object({}), call: () => 'plain ran' });
-    const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: z.object({}), call: () => 'ran' });
+    const plain = new Tool({ name: 'plain', description: 'Plain', schema: a.object({}), call: () => 'plain ran' });
+    const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: a.object({}), call: () => 'ran' });
     const prompt = new Prompt({ name: 'pairs', description: 'Pairs', content: 'Use tools.\n{{tools}}', tools: [plain, shown] });
     const execute = createMockExecutor({ responses: [
       { content: '', finishReason: 'tool_calls', toolCalls: [{ id: '1', name: 'plain', arguments: '{}' }, { id: '2', name: 'shown', arguments: '{}' }] },
@@ -841,9 +841,9 @@ describe('tools that do not compile', () => {
     expect(results.sort()).toEqual(['plain=plain ran', 'shown=ran']);
   });
 
-  it('leaves out a tool whose schema resolves to nothing and still runs the next one', async () => {
-    const hidden = new Tool({ name: 'hidden', description: 'Hidden', instructions: 'Hidden', schema: () => undefined, call: () => 'never' });
-    const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: z.object({}), call: () => 'ran' });
+  it('leaves out a tool that is not applicable and still runs the next one', async () => {
+    const hidden = new Tool({ name: 'hidden', description: 'Hidden', instructions: 'Hidden', schema: a.object({}), applicable: () => false, call: () => 'never' });
+    const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: a.object({}), call: () => 'ran' });
     const prompt = new Prompt({ name: 'pairs', description: 'Pairs', content: 'Use tools.', tools: [hidden, shown] });
     const execute = createMockExecutor({ responses: [
       { content: '', finishReason: 'tool_calls', toolCalls: [{ id: '1', name: 'shown', arguments: '{}' }] },

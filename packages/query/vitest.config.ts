@@ -12,6 +12,8 @@ export default defineConfig({
       // Point to the TS source instead — vitest handles TS natively. Mirrors
       // gin's vitest config.
       '@aeye/core': resolve(__dirname, '../core/src/index.ts'),
+      // core's source imports @aeye/schema, whose dist isn't built yet.
+      '@aeye/schema': resolve(__dirname, '../schema/src/index.ts'),
     },
   },
   test: {

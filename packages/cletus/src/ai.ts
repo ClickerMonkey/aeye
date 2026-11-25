@@ -1,13 +1,13 @@
 import { AI, ContextInfer, ToolInfer } from '@aeye/ai';
 import { AWSBedrockProvider } from '@aeye/aws';
-import { Usage, accumulateUsage, toJSONSchema } from '@aeye/core';
+import { Usage, accumulateUsage } from '@aeye/core';
+import { Bound, LENIENT, RenderedRequest } from '@aeye/schema';
 import { models, replicateTransformers, strictSupport } from '@aeye/models';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { ReplicateProvider } from '@aeye/replicate';
 import Handlebars from 'handlebars';
 import { RetryContext, RetryEvents } from 'packages/openai/src/retry';
-import z from 'zod';
 import { ChatFile } from './chat';
 import { ConfigFile } from './config';
 import { logger } from './logger';
@@ -211,8 +211,13 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
   const allModels = [...models, ...customModels];
 
   const jsonReplacer = (_key: string, value: any) => {
-    if (value instanceof z.ZodType) {
-      return toJSONSchema(value, true)
+    // Schemas (tool parameters, response formats) are logged in the code
+    // shape; a request's plan is left out (it is large and circular).
+    if (value instanceof Bound) {
+      return value.render(LENIENT).jsonSchema;
+    }
+    if (value instanceof RenderedRequest) {
+      return undefined;
     }
     if (value instanceof Set) {
       return Array.from(value);
@@ -303,7 +308,7 @@ export type CletusTool = ToolInfer<CletusAI>;
 
 // Global tool properties - useful for debugging
 export const globalToolProperties = {
-  // explanation: z.string().describe('Provide an explanation on why this tool is being used'),
+  // explanation: a.string().describe('Provide an explanation on why this tool is being used'),
 } as const;
 
 /**

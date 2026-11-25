@@ -8,7 +8,7 @@
 import { OpenRouterProvider } from '../openrouter';
 import type { OpenRouterConfig } from '../openrouter';
 import { type Request, type AIContextAny, type ModelInfo, AI } from '@aeye/ai';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 
 // Mock the OpenAI SDK
 let mockOpenAI: any;
@@ -39,12 +39,12 @@ const ctxDefault: AIContextAny = {
 
 const strictRequest: Request = {
   messages: [{ role: 'user', content: 'Return the query' }],
-  responseFormat: { type: z.object({ query: z.string() }), strict: true },
+  responseFormat: { type: a.object({ query: a.string() }).bind(), strict: true },
 };
 
 const nonStrictRequest: Request = {
   messages: [{ role: 'user', content: 'Return the query' }],
-  responseFormat: { type: z.object({ query: z.string() }), strict: false },
+  responseFormat: { type: a.object({ query: a.string() }).bind(), strict: false },
 };
 
 /** Build a request through the provider and return the body sent to the SDK. */
@@ -143,7 +143,7 @@ describe('OpenRouterProvider strict structured output enforcement', () => {
     const executor = new OpenRouterProvider({ apiKey: 'test-key' }).createExecutor();
     const tool = (strict: boolean): Request => ({
       messages: [{ role: 'user', content: 'Call it' }],
-      tools: [{ name: 'record', parameters: z.object({ query: z.string() }), strict }],
+      tools: [{ name: 'record', parameters: a.object({ query: a.string() }).bind(), strict }],
     });
     await executor(tool(true), { ...ctxDefault, metadata: { model: haiku } }, { model: haiku.id });
     await executor(tool(false), { ...ctxDefault, metadata: { model: haiku } }, { model: haiku.id });
@@ -175,11 +175,12 @@ describe('OpenRouterProvider strict structured output enforcement', () => {
  * prefix. The inherited `supportedStrictFamilies` was `['openai']` — correct
  * for api.openai.com, wrong here — so every non-OpenAI model's tool schemas
  * were compiled with LENIENT no matter what the curated `strictSupport` table
- * said. Structured output looked family-aware only because
- * `applySchemaDeliveryFallback` resolves the family itself, on a path that
- * covers `response_format` and not tools.
+ * said. Structured output looked family-aware only because the ai layer's
+ * old schema-delivery fallback resolved the family itself, on a path that
+ * covered `response_format` and not tools. Requests are now planned as a
+ * whole (`prepareRequest`) with `speaks` = the families OpenRouter routes.
  *
- * The concrete symptom: LENIENT encodes `z.any()` as a self-referencing
+ * The concrete symptom: LENIENT encoded `z.any()` (core's old zod emitter) as a self-referencing
  * `$defs/Any` built from `anyOf`, and Gemini answers `400 INVALID_ARGUMENT`
  * to that as soon as a tool call is forced (`toolChoice: 'required'` →
  * Google's function-calling mode `ANY`, which compiles the tool schemas into
@@ -215,12 +216,18 @@ describe('OpenRouterProvider tool schema dialects', () => {
   const signatureTool = {
     name: 'api_signature',
     description: 'Declare the signature of the API function.',
-    parameters: z.object({
-      signature: z.object({ name: z.string() })
-        .catchall(z.any())
+    parameters: a.object({
+      signature: a.object({ name: a.string() })
+        .rest(a.unknown())
         .describe('The signature of the API function being declared.'),
-    }),
+    }).bind(),
     strict: 1,
+  };
+
+  /** The profile the model offers the request's tool (from the plan pinned on it). */
+  const profileOf = (request: Request) => {
+    const entry = request.tools![0].plan!.get(request.tools![0].name);
+    return { family: entry.profile.family, strict: entry.strict };
   };
 
   /** Every keyword appearing anywhere in a JSON-Schema tree. */
@@ -268,9 +275,9 @@ describe('OpenRouterProvider tool schema dialects', () => {
     };
     await buildToolBody(gemini3, request);
 
-    // The descriptor the provider pinned for the validation roundtrip is the
-    // observable proof of which dialect was chosen.
-    expect(request.tools![0].descriptor).toBe('google-strict');
+    // The plan pinned for the validation roundtrip is the observable proof of
+    // which dialect was chosen.
+    expect(profileOf(request)).toEqual({ family: 'google', strict: true });
   });
 
   it('REGRESSION: an any-typed google tool argument is an empty schema, not a recursive $defs/Any', async () => {
@@ -309,7 +316,7 @@ describe('OpenRouterProvider tool schema dialects', () => {
     const calls = mockOpenAI.chat.completions.create.mock.calls;
     const parameters = calls[calls.length - 1][0].tools[0].function.parameters;
 
-    expect(request.tools![0].descriptor).toBe('google-non-strict');
+    expect(profileOf(request)).toEqual({ family: 'google', strict: false });
     expect(keywordsIn(parameters).has('$defs')).toBe(false);
   });
 
@@ -319,7 +326,7 @@ describe('OpenRouterProvider tool schema dialects', () => {
       tools: [{ ...signatureTool }],
     };
     await buildToolBody(model('openai/gpt-4o', 'openai'), request);
-    expect(request.tools![0].descriptor).toBe('openai-strict');
+    expect(profileOf(request)).toEqual({ family: 'openai', strict: true });
   });
 
   it('resolves the Anthropic dialect for an anthropic/* model', async () => {
@@ -328,7 +335,7 @@ describe('OpenRouterProvider tool schema dialects', () => {
       tools: [{ ...signatureTool }],
     };
     await buildToolBody(model('anthropic/claude-sonnet-4-5', 'anthropic'), request);
-    expect(request.tools![0].descriptor).toBe('anthropic-strict');
+    expect(profileOf(request)).toEqual({ family: 'anthropic', strict: true });
   });
 
   it('leaves an unknown family on LENIENT', async () => {
@@ -341,6 +348,6 @@ describe('OpenRouterProvider tool schema dialects', () => {
       tools: [{ ...signatureTool }],
     };
     await buildToolBody(unknown, request);
-    expect(request.tools![0].descriptor).toBe('lenient');
+    expect(profileOf(request)).toEqual({ family: 'lenient', strict: false });
   });
 });

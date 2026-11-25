@@ -27,7 +27,7 @@ import type {
   TranscriptionRequest,
   TranscriptionResponse,
 } from '@aeye/ai';
-import { BaseChunk, BaseRequest, BaseResponse, deliverSchema, getModel, LENIENT, type Executor, type Request, type Streamer, type Response, getResponseFromChunks } from '@aeye/core';
+import { BaseChunk, BaseRequest, BaseResponse, deliverSchema, getModel, type Executor, type Request, type Streamer, type Response, getResponseFromChunks } from '@aeye/core';
 import Replicate from 'replicate';
 
 // ============================================================================
@@ -547,7 +547,7 @@ export class ReplicateProvider implements Provider<ReplicateConfig> {
 
     return async (request: Request, ctx, metadata, signal) => {
       // Replicate models take no response format, so a schema goes in the prompt
-      return this.doRequest(repConfig, deliverSchema(request, LENIENT, 'prompt'), ctx, metadata, signal, (transformer) => transformer.chat || {}, 'chat');
+      return this.doRequest(repConfig, deliverSchema(request, 'prompt'), ctx, metadata, signal, (transformer) => transformer.chat || {}, 'chat');
     };
   }
 
@@ -558,7 +558,7 @@ export class ReplicateProvider implements Provider<ReplicateConfig> {
     const provider = this;
 
     return async function* (request: Request, ctx: AIContextAny, metadata?: AIMetadataAny, signal?: AbortSignal) {
-      const stream = provider.doStream(config, deliverSchema(request, LENIENT, 'prompt'), ctx, metadata, signal, (transformer) => transformer.chat || {}, 'chat');
+      const stream = provider.doStream(config, deliverSchema(request, 'prompt'), ctx, metadata, signal, (transformer) => transformer.chat || {}, 'chat');
       const chunks: Chunk[] = [];
       for await (const chunk of stream) {
         chunks.push(chunk);

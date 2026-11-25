@@ -18,7 +18,7 @@ import type {
   ComponentInput,
   ComponentOutput,
   Context as CoreContext,
-  DescriptorFamily,
+  ProfileFamily,
   Executor,
   GeneratedImage,
   HostedToolType,
@@ -270,14 +270,14 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
    * - `'google'`: prefixItems, `$ref: '#'` recursion, `propertyOrdering` emitted
    * - `'none'`: explicit opt-out — overrides the auto-resolution from
    *   `provider` / `id` and forces lenient mode
-   * - any other registered family (via `registerDescriptor` in `@aeye/core`)
+   * - any other registered family (via `registerProfile` in `@aeye/schema`)
    *   — custom dialect picked up at request-build time
    * - `undefined` (most models): auto-resolve via `resolveStrictFormat(model)`,
    *   which checks `provider` against registered family names, then the
    *   `[format]/...` prefix of `id`. The `'toolsStrict'` capability is
    *   auto-derived from a successful resolution.
    */
-  strictFormat?: DescriptorFamily | 'none';
+  strictFormat?: ProfileFamily | 'none';
   // Reasoning efforts the model accepts, lowest to highest (all when omitted)
   reasoningEfforts?: ReasoningEffort[];
   // ISO date (YYYY-MM-DD) the provider stops serving the model

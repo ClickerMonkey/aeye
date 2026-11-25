@@ -32,7 +32,32 @@ Four passes after the POC review:
 3. **Performance and memory notes vs zod (done).** `bench/` and PERFORMANCE.md; summary below.
 4. **Errors for the model (done).** gin's and query's diagnostics (the model's JSON with markers, "did you mean") as the native error output of every decode, with a detail level and a size cap set on the tool / prompt definition; below.
 
-Then integration: core (with core's own tests), gin and query, then the harness.
+Then integration, in Phil's order:
+
+1. **Step 1: core — done.** Below, "Step 1: core".
+2. Step 2: gin and query produce `a`; the zod bridge goes.
+3. Step 3: the harness; rebuild and relink the stack's `dist`.
+
+### Step 1: core
+
+> Phil: "integrate into aeye core and generate unit tests there", after "Let's do it - run with it".
+
+**The API, as built** (`packages/core/src/schema.ts`, `tool.ts`, `prompt.ts`; docs: core's `aeye-core-schema.md`):
+
+- `Tool.schema: Bindable<TParams, [ctx]>`, `Prompt.schema: Bindable<TOutput, [ctx, input]>` — one static `a` instance, its dynamic part bound per call (`TParams` / `TOutput` inferred; a ctx that lacks what the dynamic step needs is a compile error). The function forms are gone: ctx-dependent shape → a keyed dynamic step; "not here" → `applicable` (Prompt has it too, and a direct run honours it). `a.string()` as a prompt output is the model's text, checked (no response format).
+- `errorFormat` on Tool and Prompt (definition), `ctx.errorFormat` (request), and per parse (`tool.parse(ctx, args, plan, onRepair, { errorFormat })`).
+- `ToolDefinition.parameters` / `ResponseFormat.type` are `Bound`s. A provider calls `prepareRequest(request, model, { speaks })`: `profileFor(model).request([...tools, output])`, the plan pinned on each definition and the format (`plan`), templated system text re-rendered for the plan, prompt-text output delivery; then sends `sentTools(request)` / `sentOutput(request)`. openai (and openrouter, ollama), aws and replicate do.
+- Decoding goes through the plan: a tool call via `plan.decodeCall` (a `run_tool` dispatcher call is resolved to the prompt's tool once its arguments are in, and runs that tool), the output via `plan.output.parse`. Bad args / outputs are answered with the schema's model-facing message (`Error parsing tool arguments: 1 problem in the arguments of …`), never a throw out of planning.
+- Handlebars: core registers `{{encode}}` and `{{schema}}` (a template variable of the same name still wins). Tool instructions default to the tool's own schema, prompt content to the output. Function forms get the value-only encoder: `instructionsFn(ctx, encode)`, tool `input(ctx, encode)`, prompt `input(input, ctx, encode)`, and `tool.encoder(ctx, plan?)`. Text that used the schema is rendered in the code shape first and again for the model in `prepareRequest`; text that didn't renders once.
+- `@aeye/ai`: `mapSchemaArgs` binds a schema's dynamic step with the full AI context; `resolveStrictFormat` uses core's `hasStrictFamily`; `getStrictFormat` returns a `Profile`.
+
+**Deleted from core:** `src/schema/` (descriptor, dialects, registry, consistency, strictify, decode, walk-key, check-bag, to-json-schema, json-schema, enum-values, any-value, cycle-breaker, analyze, expressible/`canExpress`, budget/`SchemaBudget`), `Tool.parse`'s zod/strictify/repair path and `withoutUndefinedKeys`, the `descriptor` fields; from `@aeye/ai`: `buildSchemaBudget`, `allocateToolDescriptors`, `apis/schema-fallback.ts` (`applySchemaDeliveryFallback` — with `a` nothing is inexpressible, there's always a fallback rendering). Core's 13 schema test files (337 tests) went with them; their expectations already live in this package's corpus (core-schema-strictify / -dialects / -budget). The old module is frozen in `bench/legacy-core/` as the zod-path baseline.
+
+**The bridge (TEMPORARY, `packages/core/src/zod-bridge.ts`, TODO(step 2)).** A zod schema — or the old function form, `undefined`/`false` meaning not applicable, a prompt's in `(input, ctx)` order — is still accepted by Tool and Prompt: `zodToA` walks the zod definition into an `a` bundle (memoized per zod instance; `z.lazy`, a `.meta({ id | aid })` and any container used twice become named types, a discriminated union keeps its tag, a pipe is its input, what has no `a` form is any JSON), planned like any schema, and after decoding parsed by zod itself (refinements, defaults, transforms; failures formatted like any error). Sent in the code shape (lenient), a bridged call isn't decoded at all, only parsed by zod / the custom parser, as before. Not via `z.toJSONSchema`: it takes ~5 s per call on query's schemas (and the plain-union walk without tags made decoding query's invalid answers explode — both found by query's suite). `fromZod` exposes it; the deprecated custom `parse` hooks stay for query's `buildQueryTool`. gin, query and ginny are untouched and pass their suites through it. Tests: core `schema-bridge.test.ts`.
+
+**Moved to `a`:** core's tests, ai/openai/openrouter/ollama/aws/replicate tests, test-integration's fixtures, cletus (all 58 tools and its prompts; only cletus's own config validation keeps zod). Not moved: ginny (its schemas wrap gin's zod: step 2), resources (zod for its own file versions, never reaches core).
+
+**Gaps closed here:** text output (a.string() takes the raw reply), `Prompt.applicable`, Claude non-strict output as prompt text (`planRequest`: a family whose output is always strict sends a `strict: false` output as prompt text unless `delivery: 'structured'`), and the repair-failed message (a container sent as broken JSON text says so).
 
 ### Pass 1 decisions
 
@@ -421,13 +446,11 @@ The pass-1 feature tests (`src/__tests__/{render,profiles,types,encode,request,t
 
 ### Remaining gaps
 
-These are still open; each is an `it.fails` or `@ts-expect-error GAP` in the corpus and starts failing when it is fixed.
+These are still open; each is an `it.fails` or `@ts-expect-error GAP` in the corpus and starts failing when it is fixed. (Closed in step 1: text output, `Prompt.applicable`, the broken-JSON-text message, Claude non-strict output; see "Step 1: core".)
 
-- **A string output takes the raw reply** (core `schema: z.string().min(5)`; core-tools). Today an output root that isn't an object is wrapped `{input}`. A text output mode, with no response format and the raw text parsed as the string, is not built.
-- **`Prompt` `applicable`** is missing from `proposal/core-api.ts` (core `schema: () => false`). This belongs to the core integration.
-- **A broken JSON-text container's message** says "Expected an object, got string" instead of naming the JSON parse failure (core-tools).
+- **The request ladder is slow for a big grammar on OpenAI strict**: cletus's DBA query grammar (2 types) takes ~3 s to plan the first time (it walks enum caps and depths, rendering each), ~0.3 s on Anthropic; later plans of the same bind are instant.
+
 - **A `key` option turns an optional dynamic arg required** in `bind`'s parameters (type level, core-tools).
-- **Claude output with `strict: false`** is sent as non-strict structured output, which Claude doesn't have. It should be prompt text (core-schema-budget).
 - **A homogeneous tuple on Anthropic strict** repeats the same branch in `items.anyOf`, spending union budget (core-schema-dialects).
 - **Unused `$defs`:**
   - a recursive root that is inlined, with JSON-text back-edges, still leaves its def;

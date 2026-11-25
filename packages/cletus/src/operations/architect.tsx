@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import path from 'path';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { deleteUndefined, formatName, pluralize } from "../common";
 import { ConfigFile } from "../config";
 import type { TypeDefinition, TypeField } from "../schemas";
@@ -580,32 +580,31 @@ export const type_import = operationOf<
       existingTypeUpdates.set(existingType.name, [...existingType.fields]);
     }
     
-    // Helper functions for dynamic schema generation
-    const getDiscoveredTypeEnum = () => {
-      const discoveredNames = Array.from(discoveredTypes.keys());
-      return discoveredNames.length ? z.enum(discoveredNames as [string, ...string[]]) : z.never();
-    };
-
-    // Get all type names (existing + discovered)
+    // The extractor tools' schemas name the types discovered SO FAR (the tools
+    // change them between calls): `Discovered` (discovered type names),
+    // `AnyType` (existing + discovered) and `FieldType` (primitives + all),
+    // bound per call and cached by the names.
     const getAllTypeNames = () => {
       const discoveredNames = Array.from(discoveredTypes.keys());
       return [...existingTypeNames, ...discoveredNames];
     };
-    
-    // Dynamic enum of all type names
-    const getAllTypeEnum = () => {
-      const allNames = getAllTypeNames();
-      return allNames.length ? z.enum(allNames as [string, ...string[]]) : z.never();
-    };
-    
-    // Define reusable field schema factory (dynamic to include discovered types)
-    const createFieldSchema = () => z.object({
-      name: z.string().describe('Field name (lowercase, no spaces)'),
-      friendlyName: z.string().describe('Field display name'),
-      type: z.enum(['string', 'number', 'boolean', 'date', 'enum', ...getAllTypeNames()] as [string, ...string[]]).describe('Field type'),
-      required: z.boolean().optional().describe('Is field required?'),
-      enumOptions: z.array(z.string()).optional().describe('Valid enum values (required for enum type)'),
-      onDelete: z.enum(['restrict', 'cascade', 'setNull']).optional().describe('Cascade delete behavior for reference fields'),
+    const namesEnum = (names: string[]) => names.length ? a.enum(names as [string, ...string[]]) : a.never();
+    const ImportNames = a
+      .declare<{ Discovered: string; AnyType: string; FieldType: string }>()
+      .dynamic(() => ({
+        Discovered: namesEnum(Array.from(discoveredTypes.keys())),
+        AnyType: namesEnum(getAllTypeNames()),
+        FieldType: a.enum(['string', 'number', 'boolean', 'date', 'enum', ...getAllTypeNames()]).describe('Field type'),
+      }), { key: () => Array.from(discoveredTypes.keys()).join('\n') });
+
+    // A field definition (its type may name any type)
+    const FieldSchema = a.object({
+      name: a.string().describe('Field name (lowercase, no spaces)'),
+      friendlyName: a.string().describe('Field display name'),
+      type: a.ref('FieldType'),
+      required: a.boolean().optional().describe('Is field required?'),
+      enumOptions: a.array(a.string()).optional().describe('Valid enum values (required for enum type)'),
+      onDelete: a.enum(['restrict', 'cascade', 'setNull']).optional().describe('Cascade delete behavior for reference fields'),
     });
     
     // Create the prompt with dynamic schemas
@@ -677,13 +676,13 @@ When managing types:
           name: 'add_discovered',
           description: 'Add a new discovered type definition. Only available if max types limit has not been reached.',
           instructions: 'Create a new discovered type with the specified name, friendly name, description, fields, and optional instance count.',
-          schema: () => z.object({
-            name: z.string().describe('Type name (lowercase, no spaces)'),
-            friendlyName: z.string().describe('Display name'),
-            description: z.string().optional().describe('Type description'),
-            fields: z.array(createFieldSchema()).describe('Field definitions'),
-            instanceCount: z.number().optional().describe('Estimated number of instances found'),
-          }),
+          schema: ImportNames.result(a.object({
+            name: a.string().describe('Type name (lowercase, no spaces)'),
+            friendlyName: a.string().describe('Display name'),
+            description: a.string().optional().describe('Type description'),
+            fields: a.array(FieldSchema).describe('Field definitions'),
+            instanceCount: a.number().optional().describe('Estimated number of instances found'),
+          })),
           applicable: () => !max || discoveredTypes.size < max,
           call: async (input) => {
             // Check if max limit would be exceeded
@@ -731,10 +730,10 @@ When managing types:
           name: 'rename_discovered',
           description: 'Rename a discovered type',
           instructions: 'Change the name of an existing discovered type. This is useful for resolving naming conflicts or improving clarity.',
-          schema: () => z.object({
-            oldName: getDiscoveredTypeEnum().describe('Current type name'),
-            newName: z.string().describe('New type name (lowercase, no spaces)'),
-          }),
+          schema: ImportNames.result(a.object({
+            oldName: a.ref('Discovered').describe('Current type name'),
+            newName: a.string().describe('New type name (lowercase, no spaces)'),
+          })),
           applicable: () => discoveredTypes.size > 0,
           call: async (input) => {
             const type = discoveredTypes.get(input.oldName);
@@ -763,18 +762,18 @@ When managing types:
           name: 'update_fields',
           description: 'Add, update, or remove fields on an existing or discovered type. For existing types, only new fields can be added.',
           instructions: `Modify the fields of a specified type. For discovered types, you can add new fields, update existing fields, or remove fields. For existing types, you can only add new fields; updating or removing existing fields is not allowed.`,
-          schema: () => z.object({
-            typeName: getAllTypeEnum().describe('Type name'),
-            fields: z.array(
-              z.union([
-                createFieldSchema(),
-                z.object({
-                  name: z.string().describe('Field name to remove'),
-                  remove: z.literal(true).describe('Set to true to remove this field'),
+          schema: ImportNames.result(a.object({
+            typeName: a.ref('AnyType').describe('Type name'),
+            fields: a.array(
+              a.union([
+                FieldSchema,
+                a.object({
+                  name: a.string().describe('Field name to remove'),
+                  remove: a.literal(true).describe('Set to true to remove this field'),
                 })
               ])
             ).describe('Fields to add/update/remove. To remove, use {name: "fieldname", remove: true}'),
-          }),
+          })),
           applicable: () => discoveredTypes.size > 0 || existingTypeNames.length > 0,
           call: async (input) => {
             // Check if it's a discovered type
@@ -875,11 +874,11 @@ When managing types:
           name: 'update_discovered',
           description: 'Update properties of a discovered type',
           instructions: 'Update the friendly name or description of a discovered type.',
-          schema: () => z.object({
-            name: getDiscoveredTypeEnum().describe('Type name'),
-            friendlyName: z.string().optional().describe('New friendly name'),
-            description: z.string().optional().describe('New description'),
-          }),
+          schema: ImportNames.result(a.object({
+            name: a.ref('Discovered').describe('Type name'),
+            friendlyName: a.string().optional().describe('New friendly name'),
+            description: a.string().optional().describe('New description'),
+          })),
           applicable: () => discoveredTypes.size > 0,
           call: async (input) => {
             const type = discoveredTypes.get(input.name);
@@ -897,10 +896,10 @@ When managing types:
           name: 'add_instances',
           description: 'Track instance count for a type',
           instructions: 'Increment the instance count for the specified type by the given count. This is necessary for prioritizing important types during import.',
-          schema: () => z.object({
-            typeName: getDiscoveredTypeEnum().describe('Type name'),
-            count: z.number().describe('Number of instances to add'),
-          }),
+          schema: ImportNames.result(a.object({
+            typeName: a.ref('Discovered').describe('Type name'),
+            count: a.number().describe('Number of instances to add'),
+          })),
           applicable: () => discoveredTypes.size > 0,
           call: async (input) => {
             const type = discoveredTypes.get(input.typeName);
@@ -917,10 +916,10 @@ When managing types:
           name: 'remove_discovered',
           description: 'Remove a discovered type',
           instructions: 'Remove the specified discovered type, for example if it is too infrequent or not useful.',
-          schema: () => z.object({
-            name: getDiscoveredTypeEnum().describe('Type name to remove'),
-            reason: z.string().optional().describe('Reason for removal'),
-          }),
+          schema: ImportNames.result(a.object({
+            name: a.ref('Discovered').describe('Type name to remove'),
+            reason: a.string().optional().describe('Reason for removal'),
+          })),
           applicable: () => discoveredTypes.size > 0,
           call: async (input) => {
             discoveredTypes.delete(input.name);

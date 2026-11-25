@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
 import { ChartConfigSchema } from '../helpers/artist';
@@ -17,9 +17,9 @@ Example: Generate a landscape image:
 { "prompt": "A serene mountain landscape at sunset with a lake in the foreground", "n": 1 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      prompt: z.string().describe('Text description of the image to generate'),
-      n: z.number().optional().default(1).describe('Number of images to generate (default: 1)'),
+    schema: a.object({
+      prompt: a.string().describe('Text description of the image to generate'),
+      n: a.number().default(1).describe('Number of images to generate (default: 1)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('image_generate'),
@@ -35,9 +35,9 @@ Example: Add a sunset effect to an image:
 { "prompt": "Add warm sunset colors and lighting", "path": "images/photo.jpg" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      prompt: z.string().describe('Description of how to edit the image'),
-      path: z.string().describe('Path to the image to edit (relative path or absolute path or [filename](filepath) URL)'),
+    schema: a.object({
+      prompt: a.string().describe('Description of how to edit the image'),
+      path: a.string().describe('Path to the image to edit (relative path or absolute path or [filename](filepath) URL)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('image_edit'),
@@ -53,10 +53,10 @@ Example: Compare two designs:
 { "prompt": "What are the main differences between these two UI designs?", "paths": ["designs/v1.png", "designs/v2.png"] }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      prompt: z.string().describe('Question or analysis request about the images'),
-      paths: z.array(z.string()).describe('Paths to images to analyze (relative paths or absolute file or [filename](filepath))'),
-      maxCharacters: z.number().optional().default(2084).describe('Maximum response length (maxCharacters/4 = maxTokens, default: 2084)'),
+    schema: a.object({
+      prompt: a.string().describe('Question or analysis request about the images'),
+      paths: a.array(a.string()).describe('Paths to images to analyze (relative paths or absolute file or [filename](filepath))'),
+      maxCharacters: a.number().default(2084).describe('Maximum response length (maxCharacters/4 = maxTokens, default: 2084)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('image_analyze'),
@@ -72,8 +72,8 @@ Example: Describe a screenshot:
 { "path": "screenshots/dashboard.png" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Path to the image to describe (relative path or absolute path or [filename](filepath))'),
+    schema: a.object({
+      path: a.string().describe('Path to the image to describe (relative path or absolute path or [filename](filepath))'),
       ...globalToolProperties,
     }),
     input: getOperationInput('image_describe'),
@@ -89,11 +89,11 @@ Example: Find images of people in photos:
 { "query": "photos containing people smiling", "glob": "photos/**/*.jpg", "n": 5 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      query: z.string().describe('Description of what to find in images'),
-      glob: z.string().describe('Glob pattern for image files to search (e.g., "**/*.png", "photos/*.jpg")'),
-      maxImages: z.number().optional().default(100).describe('Maximum number of images to analyze (default: 100)'),
-      n: z.number().optional().default(5).describe('Number of top results to return (default: 5)'),
+    schema: a.object({
+      query: a.string().describe('Description of what to find in images'),
+      glob: a.string().describe('Glob pattern for image files to search (e.g., "**/*.png", "photos/*.jpg")'),
+      maxImages: a.number().default(100).describe('Maximum number of images to analyze (default: 100)'),
+      n: a.number().default(5).describe('Number of top results to return (default: 5)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('image_find'),
@@ -109,8 +109,8 @@ Example: Attach an image file:
 { "path": "images/diagram.png" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Path to the image file to attach (absolute or relative)'),
+    schema: a.object({
+      path: a.string().describe('Path to the image file to attach (absolute or relative)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('image_attach'),
@@ -145,7 +145,7 @@ Example: Display market share as a pie chart:
 { "chartGroup": "partToWhole", "title": "Market Share", "data": [{"name": "Apple", "value": 28}, {"name": "Samsung", "value": 22}], "defaultVariant": "pie" }
  
 {{modeInstructions}}`,
-    schema: z.object({
+    schema: a.object({
       chart: ChartConfigSchema,
       ...globalToolProperties,
     }),
@@ -164,8 +164,8 @@ Example: Show a flowchart:
 { "spec": "graph TD\\n  A[Start] --> B[Process]\\n  B --> C[End]" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      spec: z.string().describe('Mermaid diagram specification string'),
+    schema: a.object({
+      spec: a.string().describe('Mermaid diagram specification string'),
       ...globalToolProperties,
     }),
     metadata: { onlyClient: 'browser' },

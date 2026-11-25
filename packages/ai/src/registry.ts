@@ -5,7 +5,7 @@
  * Provider order ensures deterministic model resolution: first provider to return a model ID wins.
  */
 
-import { type DescriptorFamily, type FormatDescriptor, getDescriptor, getModel, hasDescriptorFamily, LENIENT, SchemaBudget, strictPriority, type ToolDefinition } from '@aeye/core';
+import { familyProfile, getModel, hasStrictFamily, LENIENT, type Profile, type ProfileFamily } from '@aeye/core';
 import { detectTier } from './modelDetection';
 import type {
   AIBaseMetadata,
@@ -46,69 +46,20 @@ import type {
 export function resolveStrictFormat(model: {
   id: string;
   provider: string;
-  strictFormat?: DescriptorFamily | 'none';
-}): DescriptorFamily | undefined {
+  strictFormat?: ProfileFamily | 'none';
+}): ProfileFamily | undefined {
   if (model.strictFormat === 'none') return undefined;
   if (model.strictFormat) return model.strictFormat;
-  if (hasDescriptorFamily(model.provider)) return model.provider;
+  if (hasStrictFamily(model.provider)) return model.provider;
   const slashIdx = model.id.indexOf('/');
   if (slashIdx > 0) {
     // OpenRouter marks floating "-latest" aliases with a leading `~`
     // (e.g. `~anthropic/claude-sonnet-latest`). Strip it so the family
     // prefix still resolves to the right descriptor.
     const prefix = model.id.slice(0, slashIdx).replace(/^~/, '');
-    if (hasDescriptorFamily(prefix)) return prefix;
+    if (hasStrictFamily(prefix)) return prefix;
   }
   return undefined;
-}
-
-/**
- * Build a SchemaBudget over the model's tool and structured-output dialects.
- * Anthropic-style per-request limits apply across BOTH tool schemas and the
- * output schema, so a provider shares one budget between them, but each kind
- * keeps its own descriptor: a model with strict output and no strict tools
- * must not send `strict: true` tools.
- *
- * Strict mode engages only when the model's resolved family is one the
- * provider speaks (`families`) AND the model has the corresponding capability
- * (`'toolsStrict'` for tools, `'structured'` for output). Otherwise the
- * family's non-strict descriptor applies, which keeps the dialect's own
- * constraints (Gemini rejects LENIENT's recursive `$defs/Any`) even when only
- * the model id is known. Families the provider doesn't speak fall back to
- * LENIENT, so the wire never receives a dialect the API doesn't understand.
- *
- * @param model The full model, or just its id and provider when selection
- *   didn't supply one
- * @param families The strict descriptor families the provider speaks
- */
-export function buildSchemaBudget(
-  model: Pick<ModelInfo, 'id' | 'provider' | 'strictFormat'> & { capabilities?: ModelInfo['capabilities'] },
-  families: ReadonlySet<DescriptorFamily>,
-): SchemaBudget {
-  const family = resolveStrictFormat(model);
-  const descriptorFor = (capability: 'toolsStrict' | 'structured') =>
-    family !== undefined && families.has(family)
-      ? getDescriptor(family, model.capabilities?.has(capability) ?? false)
-      : LENIENT;
-  return new SchemaBudget(descriptorFor('toolsStrict'), descriptorFor('structured'));
-}
-
-/**
- * Allocate per-tool descriptors in descending-priority order, so the
- * most-wanted strict tools consume the budget first, then return them in
- * declaration order. Records each chosen id on `tools[i].descriptor` for the
- * Prompt's validation roundtrip.
- */
-export function allocateToolDescriptors(tools: ToolDefinition[], budget: SchemaBudget): FormatDescriptor[] {
-  const descriptors: FormatDescriptor[] = new Array(tools.length);
-  tools
-    .map((tool, i) => ({ i, p: strictPriority(tool.strict) }))
-    .sort((a, b) => b.p - a.p)
-    .forEach(({ i }) => {
-      descriptors[i] = budget.allocateTool(tools[i].parameters, tools[i].strict);
-      tools[i].descriptor = descriptors[i].id;
-    });
-  return descriptors;
 }
 
 // ============================================================================
@@ -801,12 +752,13 @@ export class ModelRegistry<
   }
 
   /**
-   * Resolve the `FormatDescriptor` to use when sending a strict-flagged
-   * request to a given model.
+   * The strict schema profile (`@aeye/schema`) a strict-flagged request to
+   * a model is written in.
    *
    * Returns `LENIENT` when the request is non-strict or when
    * `resolveStrictFormat` can't determine a family for the model — strict
-   * is best-effort, the provider always gets *some* valid descriptor.
+   * is best-effort, the provider always gets *some* valid profile. Requests
+   * themselves are planned with `prepareRequest` (`@aeye/core`).
    *
    * Tools and structured output share the same dialect (per-model), so this
    * helper takes no `kind` argument. Whether tools-strict or output-strict
@@ -816,11 +768,11 @@ export class ModelRegistry<
   getStrictFormat(
     model: ModelInfo<TProviderKey>,
     requested: boolean,
-  ): FormatDescriptor {
+  ): Profile {
     if (!requested) return LENIENT;
     const family = resolveStrictFormat(model);
     if (!family) return LENIENT;
-    return getDescriptor(family, true);
+    return familyProfile(family, true);
   }
 
   /**

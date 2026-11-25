@@ -1560,7 +1560,24 @@ function isObject(v: unknown): v is object {
 }
 
 function kind(v: unknown): string {
+  if (typeof v === 'string') return brokenJsonText(v) ?? 'string';
   return v === null ? 'null' : Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'an object' : typeof v;
+}
+
+/**
+ * A container sent as a string of JSON text that doesn't parse (a model
+ * double-encoding large arguments and breaking them on the way, as Claude
+ * does): said as such, so the model sends the value itself next time.
+ */
+function brokenJsonText(v: string): string | undefined {
+  const head = v.trimStart()[0];
+  if (head !== '{' && head !== '[') return undefined;
+  try {
+    JSON.parse(v);
+    return undefined;
+  } catch (e) {
+    return `a string of JSON text that doesn't parse (${(e as Error).message}); send the value itself, not as a string`;
+  }
 }
 
 function jsonType(v: LiteralValue): string {

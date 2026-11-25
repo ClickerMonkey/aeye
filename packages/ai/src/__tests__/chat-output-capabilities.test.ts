@@ -4,7 +4,7 @@
  * needs neither.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import type { Request, SchemaDelivery } from '@aeye/core';
 import { AI } from '../ai';
 import { ChatAPI } from '../apis/chat';
@@ -19,7 +19,7 @@ class Capabilities<T extends AIBaseTypes> extends ChatAPI<T> {
 const capabilities = new Capabilities(AI.with().providers({}).create({}));
 
 function request(schemaDelivery: SchemaDelivery): Request {
-  return { messages: [], responseFormat: { type: z.object({ value: z.number() }), strict: 1, schemaDelivery } };
+  return { messages: [], responseFormat: { type: a.object({ value: a.number() }).bind(), strict: 1, schemaDelivery } };
 }
 
 describe('chat output capabilities', () => {

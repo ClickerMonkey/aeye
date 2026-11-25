@@ -8,7 +8,7 @@
  * - Error handling and edge cases
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context } from '../types';
@@ -21,7 +21,7 @@ describe('Prompt Advanced Features', () => {
         name: 'calculator',
         description: 'Calculate',
         instructions: 'Calculate numbers',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input) => input.a + input.b
       });
 
@@ -68,7 +68,7 @@ describe('Prompt Advanced Features', () => {
         name: 'doubler',
         description: 'Double',
         instructions: 'Double a number',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x * 2
       });
 
@@ -122,7 +122,7 @@ describe('Prompt Advanced Features', () => {
         name: 'reconfig-test',
         description: 'Reconfig test',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         reconfig: (stats, ctx) => {
           reconfigCalls++;
           // Continue on first call, stop after
@@ -153,7 +153,7 @@ describe('Prompt Advanced Features', () => {
         name: 'stop-early',
         description: 'Stop early',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         reconfig: (stats, ctx) => {
           // Always stop
           return { maxIterations: 0 };
@@ -181,7 +181,7 @@ describe('Prompt Advanced Features', () => {
         name: 'tool1',
         description: 'Tool 1',
         instructions: 'Tool 1',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise(resolve => setTimeout(resolve, 50));
           executionOrder.push('tool1');
@@ -193,7 +193,7 @@ describe('Prompt Advanced Features', () => {
         name: 'tool2',
         description: 'Tool 2',
         instructions: 'Tool 2',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise(resolve => setTimeout(resolve, 10));
           executionOrder.push('tool2');
@@ -245,7 +245,7 @@ describe('Prompt Advanced Features', () => {
         name: 'slow',
         description: 'Slow tool',
         instructions: 'Slow',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           startTimes.slow = Date.now();
           await new Promise(resolve => setTimeout(resolve, 50));
@@ -258,7 +258,7 @@ describe('Prompt Advanced Features', () => {
         name: 'fast',
         description: 'Fast tool',
         instructions: 'Fast',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           startTimes.fast = Date.now();
           await new Promise(resolve => setTimeout(resolve, 10));
@@ -326,7 +326,7 @@ describe('Prompt Advanced Features', () => {
         name: 'conditional-tool',
         description: 'Conditional',
         instructions: 'Conditional',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -404,7 +404,7 @@ describe('Prompt Advanced Features', () => {
         name: 'data-fetcher',
         description: 'Fetch data',
         instructions: 'Fetch data',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => ({ data: 'fetched' })
       });
 
@@ -442,32 +442,37 @@ describe('Prompt Advanced Features', () => {
   });
 
   describe('Input and Schema Functions', () => {
-    it('should handle schema as function', async () => {
+    it('should handle a dynamic schema bound per (ctx, input)', async () => {
+      const WithAge = a.object({ name: a.string(), age: a.number() });
+      const NameOnly = a.object({ name: a.string() });
       const prompt = new Prompt({
         name: 'dynamic-schema',
         description: 'Dynamic schema',
         content: 'Extract',
-        schema: (input?: { includeAge: boolean }) => {
-          return input?.includeAge
-            ? z.object({ name: z.string(), age: z.number() })
-            : z.object({ name: z.string() });
-        },
+        // Types the prompt's input.
+        input: (_input?: { includeAge: boolean }) => ({}),
+        schema: a
+          .declare<{ Person: { name: string; age?: number } }>()
+          .dynamic((_ctx: Context<{}, {}>, input?: { includeAge: boolean }) => ({
+            Person: input?.includeAge ? WithAge : NameOnly,
+          }), { key: (_ctx, input) => !!input?.includeAge })
+          .result('Person'),
       });
 
-      const executor = createMockExecutor({
-        response: {
-          content: JSON.stringify({ name: 'Alice' }),
-          finishReason: 'stop'
-        }
-      });
-
-      const ctx: Context<{}, {}> = {
-        execute: executor,
+      const ctx = (content: string): Context<{}, {}> => ({
+        execute: createMockExecutor({ responses: [{ content, finishReason: 'stop' }, { content, finishReason: 'stop' }] }),
         messages: []
-      };
+      });
 
-      const result = await prompt.get('result', { includeAge: false }, ctx);
+      // Without age: the name-only shape fits.
+      const result = await prompt.get('result', { includeAge: false }, ctx(JSON.stringify({ name: 'Alice' })));
       expect(result).toEqual({ name: 'Alice' });
+
+      // With age: the shape bound for this input requires it.
+      expect(await prompt.get('result', { includeAge: true }, ctx(JSON.stringify({ name: 'Bob', age: 3 }))))
+        .toEqual({ name: 'Bob', age: 3 });
+      await expect(prompt.get('result', { includeAge: true }, { ...ctx(JSON.stringify({ name: 'Bob' })) }))
+        .rejects.toThrow(/age: Required/);
     });
 
     it('should handle input function', async () => {

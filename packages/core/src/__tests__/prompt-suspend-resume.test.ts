@@ -5,7 +5,7 @@
  * execution so the caller can save state and resume later.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool, PromptSuspend, ToolInterrupt } from '../tool';
 import { Context, Message } from '../types';
@@ -42,7 +42,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'approval-required',
         description: 'Requires approval',
         instructions: 'Use when approval is needed',
-        schema: z.object({ action: z.string() }),
+        schema: a.object({ action: a.string() }),
         call: () => {
           throw new PromptSuspend('Waiting for user approval');
         }
@@ -97,7 +97,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'needs-approval',
         description: 'Needs approval',
         instructions: 'Approval tool',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
         call: () => {
           throw new PromptSuspend();
         }
@@ -140,7 +140,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'pausing-tool',
         description: 'Pauses execution',
         instructions: 'Pausing tool',
-        schema: z.object({ id: z.number() }),
+        schema: a.object({ id: a.number() }),
         call: () => {
           throw new PromptSuspend('Needs processing');
         }
@@ -194,7 +194,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'normal-tool',
         description: 'Normal tool',
         instructions: 'Normal execution',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => `result: ${input.x}`
       });
 
@@ -244,7 +244,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'completing-tool',
         description: 'Completes successfully',
         instructions: 'Completes',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
         call: (input) => `done: ${input.value}`,
       });
 
@@ -252,7 +252,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'suspend-tool',
         description: 'Needs approval',
         instructions: 'Approval',
-        schema: z.object({ id: z.number() }),
+        schema: a.object({ id: a.number() }),
         call: () => { throw new PromptSuspend('Awaiting approval'); },
       });
 
@@ -310,7 +310,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'resumable-tool',
         description: 'Resumable tool',
         instructions: 'Resumable',
-        schema: z.object({ task: z.string() }),
+        schema: a.object({ task: a.string() }),
         call: () => {
           throw new PromptSuspend('Needs external processing');
         }
@@ -393,7 +393,7 @@ describe('Prompt Suspend/Resume', () => {
         name: 'interrupting-tool',
         description: 'Interrupts execution',
         instructions: 'Interrupt tool',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new ToolInterrupt('Stop now');
         }
@@ -448,7 +448,7 @@ describe('Prompt Suspend/Resume', () => {
         name,
         description: name,
         instructions: name,
-        schema: z.object({}),
+        schema: a.object({}),
         call: callFn
       });
 

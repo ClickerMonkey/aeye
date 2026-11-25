@@ -16,7 +16,7 @@
  * `@aeye/ai`'s `runtime-schema-fallback.test.ts`.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import type { Context, Request, Response } from '../types';
 
@@ -76,7 +76,7 @@ function makePrompt(
     name: 'runtime-fallback',
     description: 'Runtime schema-delivery fallback',
     content: 'You are a helpful assistant.',
-    schema: z.object({ value: z.number() }),
+    schema: a.object({ value: a.number() }),
     strict: false,
     ...(schemaDelivery ? { schemaDelivery } : {}),
     ...(opts?.runtimeSchemaFallback !== undefined ? { runtimeSchemaFallback: opts.runtimeSchemaFallback } : {}),

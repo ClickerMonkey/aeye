@@ -245,7 +245,7 @@ export async function getToolInstructions(tool: CletusTool, ctx?: CletusAIContex
   const input = tool.input;
   // Use instructions first if available, then fall back to description
   const instructions = input.instructionsFn && ctx
-    ? await resolveFn(input.instructionsFn)(ctx)
+    ? await resolveFn(input.instructionsFn)(ctx, await tool.encoder(ctx))
     : input.instructions;
   
   return instructions || input.description;

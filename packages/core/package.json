@@ -50,6 +50,7 @@
     "aeye-*.md"
   ],
   "dependencies": {
+    "@aeye/schema": "0.8.1",
     "handlebars": "^4.7.0",
     "zod": "^4.6.7"
   },

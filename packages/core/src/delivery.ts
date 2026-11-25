@@ -1,5 +1,5 @@
 import { SchemaRejectedError } from './errors';
-import { getJsonFallbackInstruction, LENIENT, toJSONSchema, type FormatDescriptor } from './schema';
+import { outputInstructions, planRequest, requestPlan, withSystemText } from './schema';
 import type { Message, Request, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget } from './types';
 
 /**
@@ -98,27 +98,20 @@ export function schemaRejection(request: Request, error: Error, message = error.
 }
 
 /**
- * Appends text to the first system message, or adds one.
- */
-function withSystemText(messages: Message[], text: string): Message[] {
-  const index = messages.findIndex(message => message.role === 'system' && typeof message.content === 'string');
-  return index === -1
-    ? [{ role: 'system', content: text }, ...messages]
-    : messages.map((message, i) => i === index ? { ...message, content: `${message.content}\n\n${text}` } : message);
-}
-
-/**
- * The request as a provider sends it. An output schema delivered as `json` or
- * `prompt` leaves the wire: it's appended to the system prompt as JSON Schema
- * and the response format becomes JSON mode or plain text. The request itself
- * isn't changed, so a prompt can send it again under another delivery.
+ * The request with its output schema delivered as prompt text when its
+ * delivery says so (`'json'` or `'prompt'`), or always with `delivery`
+ * (for providers without structured output): the schema leaves the wire for
+ * the system prompt, as the TypeScript-like shape the model writes plus the
+ * JSON instruction, and the response format becomes JSON mode or plain
+ * text. The answer is decoded through the request's plan either way. The
+ * request itself isn't changed (but for the plan pinned on its schemas), so
+ * a prompt can send it again under another delivery. `prepareRequest` does
+ * this for every planned request.
  *
  * @param request - The request.
- * @param descriptor - The model's descriptor, for its JSON instruction.
- * @param delivery - Overrides the request's delivery, for providers without
- *   structured output.
+ * @param delivery - Overrides the request's delivery.
  */
-export function deliverSchema(request: Request, descriptor: FormatDescriptor = LENIENT, delivery?: SchemaDelivery): Request {
+export function deliverSchema(request: Request, delivery?: SchemaDelivery): Request {
   const format = request.responseFormat;
   if (typeof format !== 'object') {
     return request;
@@ -127,10 +120,22 @@ export function deliverSchema(request: Request, descriptor: FormatDescriptor = L
   if (mode !== 'json' && mode !== 'prompt') {
     return request;
   }
-  const schema = JSON.stringify(toJSONSchema(format.type, LENIENT), null, 2);
+  let entry;
+  if (delivery && delivery !== format.schemaDelivery) {
+    // Planned as prompt text, so the answer is decoded with the rendering the model is shown.
+    const original = format.schemaDelivery;
+    format.schemaDelivery = delivery;
+    try {
+      entry = planRequest(request).output;
+    } finally {
+      format.schemaDelivery = original;
+    }
+  } else {
+    entry = requestPlan(request).output;
+  }
   return {
     ...request,
     responseFormat: mode === 'json' ? 'json' : undefined,
-    messages: withSystemText(request.messages, `The response must be a JSON object conforming to this schema:\n\`\`\`json\n${schema}\n\`\`\`\n\n${getJsonFallbackInstruction(descriptor)}`),
+    messages: entry ? withSystemText(request.messages, outputInstructions(entry)) : request.messages,
   };
 }

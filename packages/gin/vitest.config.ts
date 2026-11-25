@@ -15,6 +15,8 @@ export default defineConfig({
       // strict Node ESM (which vitest uses) can't resolve. Point to the
       // TS source instead — vitest handles TS natively.
       '@aeye/core': resolve(__dirname, '../core/src/index.ts'),
+      // core's source imports @aeye/schema, whose dist isn't built yet.
+      '@aeye/schema': resolve(__dirname, '../schema/src/index.ts'),
     },
   },
 });

@@ -13,7 +13,6 @@ export * from './apis/models';
 export * from './apis/base';
 export * from './apis/batch';
 export * from './apis/chat';
-export * from './apis/schema-fallback';
 export * from './apis/embed';
 export * from './apis/get';
 export * from './apis/rerank';

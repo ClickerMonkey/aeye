@@ -17,7 +17,7 @@
  * Harness mirrors prompt-tool-result-transformer.test.ts.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool, PromptSuspend, ToolInterrupt } from '../tool';
 import { Context, Message } from '../types';
@@ -75,7 +75,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search the index',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -100,7 +100,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'echo',
       description: 'Echo',
       instructions: 'Echo',
-      schema: z.object({ text: z.string() }),
+      schema: a.object({ text: a.string() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -123,7 +123,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'math',
       description: 'Add',
       instructions: 'Add',
-      schema: z.object({ a: z.number(), b: z.number() }),
+      schema: a.object({ a: a.number(), b: a.number() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -146,7 +146,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'math',
       description: 'Add',
       instructions: 'Add',
-      schema: z.object({ a: z.number(), b: z.number() }),
+      schema: a.object({ a: a.number(), b: a.number() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -169,7 +169,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: () => 'real',
     });
     const prompt = new Prompt({
@@ -193,7 +193,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: () => 'real',
     });
     const prompt = new Prompt({
@@ -223,7 +223,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -249,7 +249,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -276,7 +276,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -306,7 +306,7 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: handler,
     });
     const prompt = new Prompt({
@@ -345,14 +345,14 @@ describe('Prompt onToolIntercept', () => {
       name: 'search',
       description: 'Search',
       instructions: 'Search',
-      schema: z.object({ query: z.string() }),
+      schema: a.object({ query: a.string() }),
       call: searchHandler,
     });
     const mathTool = new Tool({
       name: 'math',
       description: 'Add',
       instructions: 'Add',
-      schema: z.object({ a: z.number(), b: z.number() }),
+      schema: a.object({ a: a.number(), b: a.number() }),
       call: mathHandler,
     });
     const prompt = new Prompt({
@@ -383,7 +383,7 @@ describe('tool call ids reach the interceptor and the tool events', () => {
     name: 'echo',
     description: 'Echo',
     instructions: 'Echo',
-    schema: z.object({ text: z.string() }),
+    schema: a.object({ text: a.string() }),
     call: ({ text }) => text,
   });
 
@@ -441,7 +441,7 @@ describe('tool call ids reach the interceptor and the tool events', () => {
 
   it('tells a valid sibling of a call to an unknown tool that it was not run, rather than aborted', async () => {
     const handler = jest.fn(({ text }: { text: string }) => text);
-    const echo = new Tool({ name: 'echo', description: 'Echo', instructions: 'Echo', schema: z.object({ text: z.string() }), call: handler });
+    const echo = new Tool({ name: 'echo', description: 'Echo', instructions: 'Echo', schema: a.object({ text: a.string() }), call: handler });
     const prompt = new Prompt({ name: 'siblings', description: 'Siblings', content: 'Echo', tools: [echo], toolExecution: 'sequential' });
     const executor = createMockExecutor({
       responses: [

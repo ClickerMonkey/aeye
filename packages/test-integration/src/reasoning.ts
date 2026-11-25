@@ -14,7 +14,7 @@ import { getResponseFromChunks, type Chunk, type Message, type Reason, type Reas
 import { models } from '@aeye/models';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { firstChunk, liveCase, type LiveSource } from './live';
 import { getAPIKey, hasAPIKey } from './setup';
 
@@ -139,9 +139,9 @@ export const DICE_ROLL = '7';
 export const DICE_TOOL = { name: 'roll_dice', description: 'Rolls the house dice and returns the total.' };
 
 // Worked out from the task, so the model reasons before the call
-export const DICE_COUNT = z.object({ count: z.number().describe('How many dice to roll') });
+export const DICE_COUNT = a.object({ count: a.number().describe('How many dice to roll') });
 
-export const DICE: Request['tools'] = [{ ...DICE_TOOL, parameters: DICE_COUNT }];
+export const DICE: Request['tools'] = [{ ...DICE_TOOL, parameters: DICE_COUNT.bind() }];
 
 export const DICE_TASK: Message = { role: 'user', content: 'Roll as many dice as there are vowels in the word "reasoning" with the roll_dice tool, then reply with only the total plus 10.' };
 

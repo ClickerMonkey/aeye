@@ -7,7 +7,7 @@
 
 import { OpenRouterProvider } from '../openrouter';
 import type { Request } from '@aeye/ai';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { getAPIKey, skipIfNoAPIKey } from './setup';
 
 const describeIntegration = skipIfNoAPIKey();
@@ -307,11 +307,11 @@ describeIntegration('OpenRouter — Google tool-schema fix (live)', () => {
   const signatureTool = {
     name: 'api_signature',
     description: 'Declare the signature of the API function.',
-    parameters: z.object({
-      signature: z.object({ name: z.string() })
-        .catchall(z.any())
+    parameters: a.object({
+      signature: a.object({ name: a.string() })
+        .rest(a.unknown())
         .describe('The signature of the API function being declared.'),
-    }),
+    }).bind(),
     strict: 1,
   };
 
@@ -322,16 +322,16 @@ describeIntegration('OpenRouter — Google tool-schema fix (live)', () => {
   const complexTool = {
     name: 'file_ticket',
     description: 'File a support ticket with structured fields.',
-    parameters: z.object({
-      title: z.string(),
-      priority: z.enum(['low', 'medium', 'high']),
-      labels: z.array(z.string()),
-      assignee: z.optional(z.string()),
-      steps: z.array(z.object({
-        description: z.string(),
-        completed: z.boolean(),
+    parameters: a.object({
+      title: a.string(),
+      priority: a.enum(['low', 'medium', 'high']),
+      labels: a.array(a.string()),
+      assignee: a.optional(a.string()),
+      steps: a.array(a.object({
+        description: a.string(),
+        completed: a.boolean(),
       })),
-    }),
+    }).bind(),
     strict: 1,
   };
 
@@ -345,12 +345,12 @@ describeIntegration('OpenRouter — Google tool-schema fix (live)', () => {
   const unionTool = {
     name: 'set_contact_method',
     description: 'Record how to reach the requester.',
-    parameters: z.object({
-      contact: z.union([
-        z.object({ kind: z.literal('email'), address: z.string() }),
-        z.object({ kind: z.literal('phone'), number: z.string() }),
+    parameters: a.object({
+      contact: a.union([
+        a.object({ kind: a.literal('email'), address: a.string() }),
+        a.object({ kind: a.literal('phone'), number: a.string() }),
       ]),
-    }),
+    }).bind(),
     strict: 1,
   };
 

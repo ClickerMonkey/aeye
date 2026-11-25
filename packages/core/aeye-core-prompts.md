@@ -1,6 +1,6 @@
 # @aeye/core — Prompt
 
-`Prompt` (`src/prompt.ts`) generates an AI response from a Handlebars-templated message, optionally calls tools in a loop, and validates structured output against a Zod schema with automatic re-prompting.
+`Prompt` (`src/prompt.ts`) generates an AI response from a Handlebars-templated message, optionally calls tools in a loop, and decodes structured output through an `@aeye/schema` schema with automatic re-prompting.
 
 ```typescript
 class Prompt<TContext = {}, TMetadata = {}, TName extends string = string,
@@ -23,8 +23,10 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 | `content` | `string` | Handlebars template, sent as the system message. `{{tools}}` is auto-appended (wrapped in `<tools>`) when tools exist and you didn't include it. |
 | `userTurn?` | `string` | User message added after the system message when there's no conversation (Anthropic, Bedrock and some OpenRouter hosts require one). Defaults to `ctx.userTurn`, then `DEFAULT_USER_TURN` (`'Begin.'`). |
 | `input?` | `Fn<Record<string,any>, [TInput?, ctx]>` | Maps raw input → template variables. |
-| `schema?` | `Fn<ZodType<TOutput> \| false, [TInput?, ctx]>` | Output schema. `false` → plain-text output. Omitted → text. |
-| `parse?` | `(raw, ctx) => TDecoded \| Error \| Promise<…>` | **Custom output parser that REPLACES Zod.** Receives the structured value **already wire-decoded to the conceptual shape** — core first applies the request's `FormatDescriptor` decode (`decodeWire`: array-of-pairs→record, null→undefined for optionals, numeric-key→tuple, …) so your parser is provider-agnostic and never sees a model family's wire quirks — and fully owns turning it into the decoded `TDecoded`; return (or throw) an `Error` to reject it — routed through the same `outputRetries` channel a Zod failure would, surfacing the error's own `.message` (no Zod vocabulary, since Zod never runs). Lets a caller (e.g. `@aeye/query`'s parser) return a built AST plus compiler-style diagnostics. Only runs where Zod validation runs today (a structured, non-`ZodString` `schema` is present); `schema` is still required and still drives the model wire format. Absent ⇒ unchanged Zod path. |
+| `schema?` | `a` schema or bundle (`Bindable<TOutput, [ctx, input]>`) | Output schema; a bundle's dynamic step takes `(ctx, input)`. Omitted → text; `a.string()` → the text, checked against it. Use `applicable` for "not here". |
+| `errorFormat?` | `ErrorFormatInput` | How an answer that doesn't fit is told to the model. Wins over `ctx.errorFormat`. |
+| `applicable?` | `(ctx) => boolean` | When false the prompt doesn't run (`get` returns `undefined`) and isn't offered. |
+| `parse?` | `(raw, ctx) => TDecoded \| Error \| Promise<…>` | Deprecated (use `a.codec` on the schema). A custom output parser: gets the decoded value (or the value as sent when it doesn't fit); a returned/thrown `Error` is retried through `outputRetries` with its own message. |
 | `strict?` | `boolean \| number` | Strict-mode policy, default `1`. See [schema doc](./aeye-core-schema.md). |
 | `config?` | `Fn<Partial<Request> \| false, [TInput?, ctx]>` | Per-request overrides (temperature, model, toolChoice, …). `false` ⇒ prompt not compatible. |
 | `reconfig?` | `(stats: PromptReconfigInput, ctx) => PromptReconfig` | Adapt config after each iteration based on runtime stats. |
@@ -116,9 +118,9 @@ const advisor = new Prompt({
   tools: [getWeather],                 // see aeye-core-tools.md
   toolExecution: 'parallel',
   toolIterations: 3,
-  schema: z.object({
-    recommendations: z.array(z.string()),
-    packingList: z.array(z.string()),
+  schema: a.object({
+    recommendations: a.array(a.string()),
+    packingList: a.array(a.string()),
   }),
 });
 
@@ -176,4 +178,4 @@ A tool can `throw new PromptSuspend(...)` to stop the loop *without* writing a t
 - `schema` returning `false` disables structured output — output is the raw text string.
 - `config`/`retool` returning `false` marks the prompt incompatible with the context.
 - `toolsMax` is a soft cap unless `toolsOneAtATime` (request flag) is set — it stops *offering* tools after the threshold.
-- Validation errors (Zod / JSON / `validate`) are truncated to `validationErrorMaxLength` before being shown to the model.
+- Validation errors (schema / JSON / `validate`) are truncated to `validationErrorMaxLength` before being shown to the model.

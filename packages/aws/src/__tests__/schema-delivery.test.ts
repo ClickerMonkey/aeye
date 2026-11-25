@@ -2,7 +2,7 @@
  * Schema delivery and schema rejections in the Bedrock provider.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { SchemaRejectedError, type Request } from '@aeye/core';
 import { AWSBedrockProvider } from '../aws';
 
@@ -10,7 +10,8 @@ const model = 'anthropic.claude-3-haiku-20240307-v1:0';
 
 function provider(send: jest.Mock) {
   const bedrock = new AWSBedrockProvider({ region: 'us-east-1', credentials: { accessKeyId: 'test', secretAccessKey: 'test' } });
-  return Object.assign(bedrock, { bedrockRuntimeClient: { send } });
+  // The runtime client is private: swapped in for the test
+  return Object.assign(bedrock as object, { bedrockRuntimeClient: { send } }) as unknown as AWSBedrockProvider;
 }
 
 describe('Bedrock schema delivery', () => {
@@ -19,12 +20,12 @@ describe('Bedrock schema delivery', () => {
     const request: Request = {
       model,
       messages: [{ role: 'system', content: 'Answer.' }, { role: 'user', content: 'Go' }],
-      responseFormat: { type: z.object({ value: z.number() }), strict: 1 },
+      responseFormat: { type: a.object({ value: a.number() }).bind(), strict: 1 },
     };
 
     await provider(send).createExecutor()(request, {});
 
-    expect(JSON.stringify(send.mock.calls[0][0].input.system)).toContain('conforming to this schema');
+    expect(JSON.stringify(send.mock.calls[0][0].input.system)).toContain('The response must be JSON of this type:');
   });
 
   it('classifies a rejected tool schema', async () => {
@@ -33,7 +34,7 @@ describe('Bedrock schema delivery', () => {
     const request: Request = {
       model,
       messages: [{ role: 'user', content: 'Go' }],
-      tools: [{ name: 'lookup', parameters: z.object({ q: z.string() }) }],
+      tools: [{ name: 'lookup', parameters: a.object({ q: a.string() }).bind() }],
     };
 
     const error = await provider(send).createExecutor()(request, {}).then(() => undefined, (e: unknown) => e);

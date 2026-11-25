@@ -75,6 +75,7 @@
     "@aeye/openai": "0.8.1",
     "@aeye/openrouter": "0.8.1",
     "@aeye/replicate": "0.8.1",
+    "@aeye/schema": "0.8.1",
     "@babel/preset-env": "^7.26.0",
     "@jest/globals": "^29.7.0",
     "@langchain/core": "^0.3.79",

@@ -6,8 +6,8 @@
  */
 
 import { OpenAIProvider } from '../openai';
-import { type Request, type ImageGenerationRequest, type TranscriptionRequest, type SpeechRequest, type EmbeddingRequest, type AIContextAny, AI } from '@aeye/ai';
-import { z } from 'zod';
+import { type Request, type ImageGenerationRequest, type TranscriptionRequest, type SpeechRequest, type EmbeddingRequest, type AIContextAny, type ModelInfo, AI } from '@aeye/ai';
+import { a } from '@aeye/schema';
 
 // Mock the OpenAI SDK
 let mockOpenAI: any;
@@ -187,9 +187,9 @@ describe('OpenAIProvider', () => {
           tools: [{
             name: 'get_weather',
             description: 'Get weather',
-            parameters: z.object({
-              location: z.string()
-            })
+            parameters: a.object({
+              location: a.string()
+            }).bind()
           }]
         };
 
@@ -710,10 +710,10 @@ describe('OpenAIProvider', () => {
         tools: [{
           name: 'get_weather',
           description: 'Get weather',
-          parameters: z.object({
-            location: z.string(),
-            unit: z.enum(['celsius', 'fahrenheit'])
-          })
+          parameters: a.object({
+            location: a.string(),
+            unit: a.enum(['celsius', 'fahrenheit'])
+          }).bind()
         }]
       };
 
@@ -742,7 +742,7 @@ describe('OpenAIProvider', () => {
         tools: [{
           name: 'get_weather',
           description: 'Get weather',
-          parameters: z.object({ location: z.string() })
+          parameters: a.object({ location: a.string() }).bind()
         }],
         toolChoice: 'required'
       };
@@ -771,7 +771,7 @@ describe('OpenAIProvider', () => {
         tools: [{
           name: 'get_weather',
           description: 'Get weather',
-          parameters: z.object({ location: z.string() })
+          parameters: a.object({ location: a.string() }).bind()
         }],
         toolChoice: { tool: 'get_weather' }
       };
@@ -796,15 +796,42 @@ describe('OpenAIProvider', () => {
       const executor = provider.createExecutor();
       const request: Request = {
         messages: [{ role: 'user', content: 'Return JSON' }],
-        responseFormat: { type: z.object({ result: z.string() }), strict: true }
+        responseFormat: { type: a.object({ result: a.string() }).bind(), strict: true }
+      };
+      // The registry's model: structured output
+      const gpt4o: ModelInfo = {
+        id: 'gpt-4o', provider: 'openai', name: 'gpt-4o', tier: 'flagship',
+        capabilities: new Set(['chat', 'structured', 'json']),
+        pricing: { text: { input: 1, output: 1 } }, contextWindow: 128000,
       };
 
-      const response = await executor(request, ctxDefault, { model: 'gpt-4' });
+      const response = await executor(request, ctxDefault, { model: gpt4o });
 
       expect(response).toBeDefined();
       const callArgs = mockOpenAI.chat.completions.create.mock.calls;
       const lastCall = callArgs[callArgs.length - 1][0];
-      expect(lastCall.response_format).toBeDefined();
+      expect(lastCall.response_format).toMatchObject({ type: 'json_schema', json_schema: { name: 'response', strict: true } });
+      expect(lastCall.response_format.json_schema.schema).toMatchObject({ type: 'object', required: ['result'], additionalProperties: false });
+    });
+
+    it('a bare model id (capabilities unknown) keeps non-strict json_schema output', async () => {
+      mockOpenAI.chat.completions.create.mockResolvedValue({
+        id: 'test-id',
+        choices: [{ message: { role: 'assistant', content: '{"result": "data"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+      });
+      const request: Request = {
+        messages: [{ role: 'user', content: 'Return JSON' }],
+        responseFormat: { type: a.object({ result: a.string() }).bind(), strict: true }
+      };
+
+      await provider.createExecutor()(request, ctxDefault, { model: 'gpt-4' });
+
+      const callArgs = mockOpenAI.chat.completions.create.mock.calls;
+      const lastCall = callArgs[callArgs.length - 1][0];
+      // Nothing known about the id alone: non-strict structured output, as before the integration
+      expect(lastCall.response_format).toMatchObject({ type: 'json_schema', json_schema: { name: 'response' } });
+      expect(lastCall.response_format.json_schema.strict).toBeUndefined();
     });
 
     it('should handle text response format', async () => {
@@ -883,7 +910,7 @@ describe('OpenAIProvider', () => {
         tools: [{
           name: 'get_weather',
           description: 'Get weather',
-          parameters: z.object({ location: z.string() })
+          parameters: a.object({ location: a.string() }).bind()
         }]
       };
 

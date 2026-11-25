@@ -71,7 +71,7 @@ describe('request', () => {
   });
 
   it('sends only the allowed tools, since OpenRouter ignores allowed_tools', async () => {
-    const tool = (name: string) => ({ name, parameters: TEXT_TOOL_SCHEMA });
+    const tool = (name: string) => ({ name, parameters: TEXT_TOOL_SCHEMA.bind() });
 
     await new OpenRouterProvider({ apiKey: 'k' }).createExecutor()({
       ...hi,

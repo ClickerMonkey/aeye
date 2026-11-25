@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
 
@@ -27,10 +27,10 @@ Example: Search for user preferences:
 { "query": "user's preferred programming languages", "limit": 5, "sourcePrefix": "user" }
 
 {{modeInstructions}}`,
-    schema: z.object({
-      query: z.string().describe('Search query text'),
-      limit: z.number().optional().describe('Maximum results (default: 10)'),
-      sourcePrefix: z.string().optional().describe('Filter by source prefix (e.g., "user", "task:", "file@{path}:")'),
+    schema: a.object({
+      query: a.string().describe('Search query text'),
+      limit: a.number().optional().describe('Maximum results (default: 10)'),
+      sourcePrefix: a.string().optional().describe('Filter by source prefix (e.g., "user", "task:", "file@{path}:")'),
       ...globalToolProperties,
     }),
     input: getOperationInput('knowledge_search'),
@@ -58,7 +58,7 @@ Example: Simply call with no parameters:
 {}
 
 {{modeInstructions}}`,
-    schema: z.object({
+    schema: a.object({
       ...globalToolProperties,
     }),
     input: getOperationInput('knowledge_sources'),
@@ -74,8 +74,8 @@ Example: Store a project detail:
 { "text": "The authentication service uses JWT tokens with a 24-hour expiration" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      text: z.string().describe('The memory text to add'),
+    schema: a.object({
+      text: a.string().describe('The memory text to add'),
       ...globalToolProperties,
     }),
     input: getOperationInput('knowledge_add'),
@@ -97,9 +97,9 @@ Example: Delete all user knowledge:
 { "sourcePattern": "^user:", "caseSensitive": true }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      sourcePattern: z.string().describe('Regex pattern to match source strings (e.g., "^task:123", "file@.*\\.md:", "^user:")'),
-      caseSensitive: z.boolean().optional().default(true).describe('Whether pattern matching is case-sensitive (default: true)'),
+    schema: a.object({
+      sourcePattern: a.string().describe('Regex pattern to match source strings (e.g., "^task:123", "file@.*\\.md:", "^user:")'),
+      caseSensitive: a.boolean().default(true).describe('Whether pattern matching is case-sensitive (default: true)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('knowledge_delete'),

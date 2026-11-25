@@ -3,7 +3,7 @@
  * error thrown out of a prompt says who caused it.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { OutputValidationError, PromptError, ToolExecutionError, ToolInputError } from '../errors';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool } from '../tool';
@@ -17,7 +17,7 @@ const lookup = new Tool({
   name: 'lookup',
   description: 'Looks up',
   instructions: 'Look up',
-  schema: z.object({ q: z.string() }),
+  schema: a.object({ q: a.string() }),
   call: ({ q }) => {
     if (q === 'fail') {
       throw boom;
@@ -62,6 +62,10 @@ describe('error kinds', () => {
     expect(failures[0]).toMatchObject({ kind: 'model', rawArgs: '{"q":5}' });
     expect(events.find(e => e.type === 'toolError')).toMatchObject({ rawArgs: '{"q":5}' });
     expect(toolMessages[0].failure).toBe('model');
+    // The model is told what it wrote, marked where it went wrong.
+    expect(toolMessages[0].content).toContain('Error parsing tool arguments: 1 problem in the arguments of lookup:');
+    expect(toolMessages[0].content).toContain('q: Expected a string, got number.');
+    expect(toolMessages[0].content).not.toContain(', args:');
   });
 
   it("a tool's own throw is a tool failure, with the thrown error as cause", async () => {
@@ -88,7 +92,7 @@ describe('error kinds', () => {
       name: 'output',
       description: 'Output',
       content: 'Answer.',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 1,
     });
     const events: PromptEvent<{ value: number }, []>[] = [];
@@ -114,7 +118,7 @@ describe('error kinds', () => {
       name: 'validated',
       description: 'Validated',
       content: 'Answer.',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       outputRetries: 0,
       validate: ({ value }) => {
         if (value < 0) {

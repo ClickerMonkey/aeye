@@ -8,7 +8,7 @@
  * compile-time / type-level assertion that `call`'s argument is the class type.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { AI } from '../ai';
 import { createMockProvider } from './mocks/provider.mock';
 
@@ -35,8 +35,8 @@ describe('AI.tool() TDecoded forwarding', () => {
     const tool = ai.tool({
       name: 'greet',
       description: 'Greet someone',
-      schema: z.object({ who: z.string() }),
-      // Custom parse REPLACES zod: its return type (Greeter) drives TDecoded.
+      schema: a.object({ who: a.string() }),
+      // Custom parse REPLACES the schema decode: its return type (Greeter) drives TDecoded.
       parse: (raw) => {
         const { who } = raw as { who: string };
         return new Greeter(who);
@@ -67,7 +67,7 @@ describe('AI.tool() TDecoded forwarding', () => {
     ai.tool({
       name: 'greet',
       description: 'Greet someone',
-      schema: z.object({ who: z.string() }),
+      schema: a.object({ who: a.string() }),
       parse: (raw) => new Greeter((raw as { who: string }).who),
       call: (input) => {
         // Type-level: `input` must be exactly `Greeter`, not the wire params.
@@ -80,7 +80,7 @@ describe('AI.tool() TDecoded forwarding', () => {
     ai.tool({
       name: 'plain',
       description: 'No custom parse',
-      schema: z.object({ who: z.string() }),
+      schema: a.object({ who: a.string() }),
       call: (input) => {
         type _CallArgIsParams = Expect<Equal<typeof input, { who: string }>>;
         return input.who;
@@ -103,8 +103,8 @@ describe('AI.tool() TDecoded forwarding', () => {
     const tool = ai.tool({
       name: 'count',
       description: 'Return a count',
-      schema: z.object({ n: z.number() }),
-      // Custom parse REPLACES zod: its return type (number) drives TDecoded.
+      schema: a.object({ n: a.number() }),
+      // Custom parse REPLACES the schema decode: its return type (number) drives TDecoded.
       parse: (raw) => (raw as { n: number }).n + 1,
       call: (input) => {
         // Type-level: `input` must be exactly `number`, not the wire object.
@@ -135,7 +135,7 @@ describe('AI.prompt() TDecoded forwarding', () => {
       name: 'counter',
       description: 'Produce a number',
       content: 'Test',
-      schema: z.object({ value: z.number() }),
+      schema: a.object({ value: a.number() }),
       parse: (raw) => Number((raw as { value: number }).value) + 1,
       validate: (output) => {
         // Compile-time: `output` is `number` (arithmetic type-checks).

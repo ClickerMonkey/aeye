@@ -1,7 +1,8 @@
-import z from "zod";
+import { a, type AnySchema, type SchemaOf } from "@aeye/schema";
 import { TypeDefinition, TypeField } from "../schemas";
 import { FieldCondition, WhereClause } from "./data";
 import { ConfigFile } from "../config";
+import { typesKey } from "./dba";
 
 /**
  * Get a type definition by name from config
@@ -24,50 +25,79 @@ export function getTypeName(config: ConfigFile, typeName: string): string {
 }
 
 /**
- * Build a Zod schema from a TypeField definition
+ * A record's field values as decoded for a type (see buildFieldsSchema).
  */
-export function buildFieldSchema(field: TypeField): z.ZodTypeAny {
-  let schema: z.ZodTypeAny;
+export type FieldValues = { [field: string]: string | number | boolean | null };
+
+/**
+ * An enum of the type names (a string when there are none: the tools using
+ * it are then not applicable).
+ */
+export function typeNameSchema(types: ReadonlyArray<TypeDefinition>) {
+  const names = types.map((t) => t.name);
+  return names.length ? a.enum(names as [string, ...string[]]) : a.string();
+}
+
+/**
+ * What a tool schema built from the configured types reads from the context.
+ */
+export type TypesContext = { config: ConfigFile };
+
+/**
+ * `TypeName`: an enum of the configured type names, bound per call from the
+ * config (cached by the types' content).
+ */
+export const TypeNameModule = a.declare<{ TypeName: string }>().dynamic(
+  (ctx: TypesContext) => ({ TypeName: typeNameSchema(ctx.config.getData().types) }),
+  { key: (ctx) => typesKey(ctx.config.getData().types) },
+);
+
+/**
+ * Build a schema from a TypeField definition
+ */
+export function buildFieldSchema(field: TypeField): AnySchema {
+  let schema: AnySchema;
 
   switch (field.type) {
     case 'string':
-      schema = z.string();
+      schema = a.string();
       break;
     case 'number':
-      schema = z.number();
+      schema = a.number();
       break;
     case 'boolean':
-      schema = z.boolean();
+      schema = a.boolean();
       break;
     case 'enum':
-      schema = z.enum(field.enumOptions as [string, ...string[]]);
+      schema = a.enum(field.enumOptions as [string, ...string[]]);
       break;
     case 'date':
-      schema = z.iso.date();
+      schema = a.string().format('date');
       break;
     default:
-      schema = z.string();
+      // A reference to another type: its id
+      schema = a.string();
       break;
   }
 
   if (!field.required) {
-    schema = schema.nullable();
+    schema = a.nullable(schema);
   }
 
   if (field.default !== undefined) {
-    schema = schema.default(field.default);
+    schema = a.default(schema, field.default as never);
   }
 
-  return schema.meta({ aid: field.name });
+  return schema;
 }
 
 /**
- * Build a Zod object schema for a type's fields
+ * Build an object schema for a type's fields
  */
-export function buildFieldsSchema(type: TypeDefinition) {
-  const shape: Record<string, z.ZodTypeAny> = {};
+export function buildFieldsSchema(type: TypeDefinition): SchemaOf<FieldValues> {
+  const shape: Record<string, AnySchema> = {};
   for (const field of type.fields) {
     shape[field.name] = buildFieldSchema(field);
   }
-  return z.object(shape).meta({ aid: `${type.name}_fields` });
+  return a.object(shape) as unknown as SchemaOf<FieldValues>;
 }

@@ -274,6 +274,68 @@ Each has a test in `src/__tests__/perf.test.ts`, and each fails without its fix.
 
 The global node cache stays a `WeakMap` keyed by schema instance. With fix 2 it retains nothing but the nodes of live schemas, so no LRU or tunable is needed. The bind caches were already bounded per bundle (`DynamicOptions.cacheSize`, default 4).
 
+## Core's path after step 1 (the core integration)
+
+`npm run bench:core` (`bench/core.ts`, BagEnd, node 22, 3 samples; the zod path is core's old schema module, frozen in `bench/legacy-core/`). Per request, for every case and profile:
+
+- **a**: what a provider now does on every request — `planRequest` over the tool's bound schema for a model of that family, then the JSON sent (`sentTools`). The bind is cached (the same catalog, as a running agent sees).
+- **bridge**: the same through core's TEMPORARY zod bridge, with the zod schema built per call as gin/query consumers do today (`zodToA` walk → plan). What they pay until step 2.
+- **zod path**: the legacy `toJSONSchema(strictify(z, d), d)` per request, the zod schema built per call.
+
+| case | profile | a: ms / request | a: MB kept / request | bridge: ms | bridge: MB | zod path: ms | zod path: MB |
+|---|---|---|---|---|---|---|---|
+| tool-small | openai-strict | 0.032 | 0 | 0.681 | 0.03 | 0.591 | 0.02 |
+| tool-small | anthropic-strict | 0.02 | 0 | 0.554 | 0.01 | 0.255 | 0 |
+| tool-small | gemini | 0.014 | 0 | 0.289 | 0 | 0.242 | 0 |
+| tool-small | lenient | 0.016 | 0 | 0.253 | 0 | 0.179 | 0 |
+| tool-defaults | openai-strict | 0.015 | 0 | 0.42 | 0 | 0.399 | 0.01 |
+| tool-defaults | anthropic-strict | 0.017 | 0 | 0.334 | 0 | 0.274 | 0 |
+| tool-defaults | gemini | 0.023 | 0 | 0.313 | 0 | 0.311 | 0 |
+| tool-defaults | lenient | 0.014 | 0 | 0.306 | 0 | 0.193 | 0 |
+| gin-value | openai-strict | 0.017 | 0 | 1.549 | 0.01 | 1.126 | 0.01 |
+| gin-value | anthropic-strict | 0.018 | 0 | 1.266 | 0.01 | 0.829 | 0 |
+| gin-value | gemini | 0.013 | 0 | 0.941 | 0 | 0.848 | 0 |
+| gin-value | lenient | 0.014 | 0 | 0.861 | 0 | 0.713 | 0.01 |
+| harness-fn | openai-strict | 0.017 | 0 | 1.694 | 0.02 | 1.532 | 0.02 |
+| harness-fn | anthropic-strict | 0.019 | 0 | 1.343 | 0.01 | 1.306 | 0.01 |
+| harness-fn | gemini | 0.014 | 0 | 1.25 | 0.01 | 1.275 | 0.01 |
+| harness-fn | lenient | 0.013 | 0 | 0.997 | 0 | 1.085 | 0.01 |
+| chart-1k | openai-strict | 0.017 | 0 | 0.609 | 0 | 0.55 | 0 |
+| chart-1k | anthropic-strict | 0.017 | 0 | 0.509 | 0 | 0.46 | 0 |
+| chart-1k | gemini | 0.014 | 0 | 0.454 | 0 | 0.422 | 0 |
+| chart-1k | lenient | 0.013 | 0 | 0.472 | 0 | 0.312 | 0 |
+| gin-grammar | openai-strict | 0.019 | 0 | 9.053 | 0.07 | 8.745 | 0.09 |
+| gin-grammar | anthropic-strict | 0.053 | 0 | 29.003 | 2.09 | 9.572 | 0.07 |
+| gin-grammar | gemini | 0.013 | 0 | 7.783 | 0.51 | 6.953 | -0.4 |
+| gin-grammar | lenient | 0.013 | 0 | 5.461 | 0.91 | 3.912 | -0.4 |
+| query-open | openai-strict | 0.016 | 0 | 56.071 | 0.13 | 6.784 | 0.42 |
+| query-open | anthropic-strict | 0.046 | 0 | 102.249 | 0.06 | 69.679 | 0.18 |
+| query-open | gemini | 0.016 | 0 | 14.173 | 0.05 | 8.72 | 0.07 |
+| query-open | lenient | 0.013 | 0 | 8.219 | 0.59 | 5.205 | 0.07 |
+| query-names | openai-strict | 0.018 | 0 | 91.287 | 0.15 | 9.434 | 0.08 |
+| query-names | anthropic-strict | 0.053 | 0 | 150.134 | 0.05 | 99.052 | 0.08 |
+| query-names | gemini | 0.015 | 0 | 19.567 | 1.02 | 10.3 | 0.07 |
+| query-names | lenient | 0.017 | 0 | 10.896 | 0.46 | 6.734 | 0.06 |
+| query-typed | openai-strict | 0.026 | 0 | 184.939 | 0.13 | 19.188 | 0.12 |
+| query-typed | anthropic-strict | 0.057 | 0 | 306.375 | 0.03 | 1060.042 | 1.13 |
+| query-typed | gemini | 0.016 | 0 | 41.855 | 0.16 | 28.788 | 0.1 |
+| query-typed | lenient | 0.014 | 0 | 21.486 | -0.9 | 16.027 | 0.11 |
+| query-paired | openai-strict | 0.031 | 0 | 381.784 | 0.22 | 22.448 | 0.16 |
+| query-paired | anthropic-strict | 0.06 | 0 | 662.021 | 0.02 | 1124.499 | 0.14 |
+| query-paired | gemini | 0.015 | 0 | 73.278 | 0.19 | 31.034 | 0.14 |
+| query-paired | lenient | 0.015 | 0 | 25.807 | 0.11 | 19.654 | 0.14 |
+| product-query-set | openai-strict | 0.029 | 0 | 489.262 | 0.27 | 23.911 | 0.19 |
+| product-query-set | anthropic-strict | 0.057 | 0 | 802.88 | 0.05 | 1049.958 | 0.07 |
+| product-query-set | gemini | 0.017 | 0 | 88.404 | 0.21 | 35.639 | 0.15 |
+| product-query-set | lenient | 0.015 | 0 | 34.952 | -0.82 | 22.432 | 0.14 |
+
+**Read:**
+
+- **Core's per-request schema work is now ~0.02–0.06 ms and keeps nothing**, for every case on every profile, query and product on Anthropic included. The zod path took 1.0–1.1 s per request for query-typed / query-paired / product on Anthropic and (measured above, "render again") kept 240–257 MB per call there: **that growth is gone from core's path**. The plan is memoized per bound schema and profile, and nothing in core walks zod lazies any more.
+- **The bridge is a step-1 cost only**, paid by code still handing core zod (ginny, query's `buildQueryTool`, and the harness once it moves to this core) when it builds a fresh zod schema per call. It is close to the zod path for small and gin schemas (0.3–2 ms; gin's grammar 5–29 ms) and faster on Anthropic for query (0.3–0.8 s against 1.0–1.1 s), but slower on OpenAI strict for query (0.06–0.49 s against 7–24 ms): planning walks the fitting ladder (enum caps, then depths) for a grammar that doesn't fit OpenAI's limits, where the old path sent it over the limits. It goes in step 2, where gin and query bind cached `a` bundles (the **a** column).
+- Two bridge designs were measured and dropped: going through `z.toJSONSchema` (zod's own converter takes **~5 s per call** on query's schemas, in `io: 'input'` or `'output'`), and a walk without named types (no `$defs` for shared fragments: 5 s plans). The walker names `z.lazy`, `.meta({ id | aid })` and every container used twice, and keeps a discriminated union's tag (without it, decoding query's invalid answers explored every union option and query's suite hung).
+- Not yet fast: the ladder itself on a big grammar. cletus's DBA query grammar plans in ~3 s the first time on OpenAI strict (~0.3 s on Anthropic); later plans of the same bind are instant. Worth a cheaper search (e.g. bisecting the depth) in the schema package.
+
 ## Worrying, outside `packages/schema` (the zod path today)
 
 These are measured here, not fixed here.
@@ -283,7 +345,7 @@ These are measured here, not fixed here.
   - That is ~2 MB per call (62 MB freed by emptying the map after 30 calls).
   - product builds `query_set`'s schema per turn, so a long-lived product process grows without bound.
   - The bench empties that map between measurements (`bench/zod-registries.ts`) so the timing runs can finish.
-- **Core's `toJSONSchema` grows the heap on every call for query schemas.**
+- **Core's `toJSONSchema` grew the heap on every call for query schemas** (gone from core's path since step 1, above).
   - About 2 MB per call on OpenAI and Gemini, and **~250 MB per call on Anthropic**, which also takes 2–3 s.
   - This is the "render again" path openai.ts takes on every request.
   - The likely cause is the cycle breaker: `genericize` calls `z.lazy`'s `def.getter()`, and query's lazies build fresh schemas.
@@ -297,6 +359,7 @@ These are measured here, not fixed here.
 - It prints the tables and writes `bench/.results/timings.json` and `rows-<case>.json`. `--only` re-runs merge with the earlier rows.
 - `npm run bench:memory` writes `bench/.results/memory.json` (about 15 min). `-- --part=perCall` re-runs only the allocation counts.
 - `npm run bench:equivalence` checks that the two sides give the same verdicts.
+- `npm run bench:core` measures core's request path after step 1, the bridge and the legacy zod path (about 15 min; `-- --only=query`, `-- --n=5`).
 - `npm run bench:errors` measures the messages for the model (pass 4). `-- --show` prints each one, `-- --no-zod` skips the zod side, `-- --only=gin`, `-- --profile=openai-strict` filter.
 
 ## All memory numbers

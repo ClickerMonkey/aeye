@@ -5,7 +5,7 @@
  * reconfig retry overrides, and tool execution state management.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool } from '../tool';
 import { Context } from '../types';
@@ -61,7 +61,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'valid-tool',
         description: 'Valid tool',
         instructions: 'Valid',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'valid-result'
       });
 
@@ -110,7 +110,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'output-tool',
         description: 'Output tool',
         instructions: 'Output',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'output-result'
       });
 
@@ -166,7 +166,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'error-tool',
         description: 'Error tool',
         instructions: 'Error',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Tool failed');
         }
@@ -219,7 +219,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'seq-tool',
         description: 'Sequential tool',
         instructions: 'Sequential',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -269,7 +269,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'limited-tool',
         description: 'Limited',
         instructions: 'Limited',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -313,7 +313,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'reconfig-output-retries',
         description: 'Reconfig output retries',
         content: 'Test',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         outputRetries: 1, // Start with 0
         reconfig: (stats) => {
           reconfigCalled = true;
@@ -348,7 +348,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'reconfig-forget-retries',
         description: 'Reconfig forget retries',
         content: 'Test',
-        schema: z.object({ result: z.string() }),
+        schema: a.object({ result: a.string() }),
         forgetRetries: 1,
         reconfig: (stats) => {
           reconfigCalled = true;
@@ -392,7 +392,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'retry-tool',
         description: 'Retry tool',
         instructions: 'Retry',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Tool error');
         }
@@ -488,7 +488,7 @@ describe('Prompt Streaming and Tool Events', () => {
         name: 'early-return-tool',
         description: 'Early return',
         instructions: 'Early return',
-        schema: z.object({ value: z.string() }),
+        schema: a.object({ value: a.string() }),
         call: (input) => input.value
       });
 

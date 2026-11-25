@@ -11,13 +11,13 @@
 import { describe, expect } from '@jest/globals';
 import { AI } from '@aeye/ai';
 import { AWSBedrockProvider, AWSContextWindowError } from '@aeye/aws';
-import { type Chunk, getDescriptorById, getResponseFromChunks, type Message, type ReasoningEffort, type Request, type Response, type ToolDefinition } from '@aeye/core';
+import { type Bound, type Chunk, getResponseFromChunks, type Message, type ReasoningEffort, type Request, type Response, type ToolDefinition } from '@aeye/core';
 import { models, strictSupport } from '@aeye/models';
 import type { ConverseCommandInput, ConverseStreamCommandInput } from '@aws-sdk/client-bedrock-runtime';
-import z from 'zod';
+import { a } from '@aeye/schema';
 import { firstChunk, type LiveSource, liveCase } from '../live';
 import { DICE, DICE_COUNT, DICE_ROLL, DICE_TASK, DICE_TOOL } from '../reasoning';
-import { fixtures, manyUnions } from '../schemas';
+import { complexFlat, fixtures, manyUnions } from '../schemas';
 
 const accessKeyId = process.env.AWS_ACCESS_KEY_ID_TEMP;
 const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY_TEMP;
@@ -239,15 +239,17 @@ describeLive('live bedrock', () => {
   // Strict tools and structured output
   // ==========================================================================
 
-  // Whether each fixture goes strict: recursion, open values and tuples, and
-  // more than 24 optional or 16 union-typed parameters degrade to non-strict
-  const strictness: Array<[string, z.ZodType<object, object>, boolean]> = [
-    ['complex', fixtures.complex, false],
-    ['complex-flat', fixtures.complex.omit({ category: true }), true],
+  // Whether each fixture goes strict (as planned offline for Haiku 4.5):
+  // recursion, open values and tuples are written as JSON text and stay
+  // strict; more than 24 optional or 16 union-typed parameters degrade to
+  // non-strict (an output: to prompt text)
+  const strictness: Array<[string, Bound<any>, boolean]> = [
+    ['complex', fixtures.complex, true],
+    ['complex-flat', complexFlat, true],
     ['large-enum', fixtures['large-enum'], true],
     ['too-deep', fixtures['too-deep'], true],
     ['many-optional', fixtures['many-optional'], false],
-    ['any-tuple', fixtures['any-tuple'], false],
+    ['any-tuple', fixtures['any-tuple'], true],
     ['many-unions', manyUnions, false],
   ];
   for (const [fixture, schema, strict] of strictness) {
@@ -265,7 +267,7 @@ describeLive('live bedrock', () => {
           expect(!!input.outputConfig?.textFormat).toBe(strict);
         } else {
           expect(!!input.toolConfig?.tools?.[0]?.toolSpec?.strict).toBe(strict);
-          expect(getDescriptorById(tool.descriptor).strict).toBe(strict);
+          expect(tool.plan!.get('record').strict).toBe(strict);
         }
       }, 180_000);
     }
@@ -276,7 +278,7 @@ describeLive('live bedrock', () => {
       name: 'city',
       description: 'Names a city',
       content: 'Name the capital of France and its country code.',
-      schema: z.object({ city: z.string(), code: z.enum(['FR', 'DE', 'ES']) }),
+      schema: a.object({ city: a.string(), code: a.enum(['FR', 'DE', 'ES']) }),
       config: { maxTokens: 100 },
       metadata: { model: HAIKU_4_5 },
     });

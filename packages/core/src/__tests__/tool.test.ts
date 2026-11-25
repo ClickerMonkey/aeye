@@ -4,8 +4,9 @@
  * Tests for the Tool component including schema validation, execution, and error handling.
  */
 
-import { z } from 'zod';
-import { describeTool, forcesTool, TEXT_TOOL_SCHEMA, Tool, withAllowedTools } from '../tool';
+import { a } from '@aeye/schema';
+import { describeTool, forcesTool, Tool, withAllowedTools } from '../tool';
+import { planRequest, TEXT_TOOL_SCHEMA } from '../schema';
 import type { Context, Request, ToolTextFormat } from '../types';
 
 // ---- Type-level assertion helpers -----------------------------------------
@@ -20,7 +21,7 @@ describe('Tool', () => {
         name: 'test-tool',
         description: 'A test tool',
         instructions: 'Use this tool for testing',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -34,7 +35,7 @@ describe('Tool', () => {
         name: 'dependency',
         description: 'Dependency tool',
         instructions: 'A dependency',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'dep-result'
       });
 
@@ -42,7 +43,7 @@ describe('Tool', () => {
         name: 'main-tool',
         description: 'Main tool',
         instructions: 'Main tool',
-        schema: z.object({}),
+        schema: a.object({}),
         refs: [dependency],
         call: (input, refs) => {
           return `Used ${refs[0].name}`;
@@ -60,10 +61,10 @@ describe('Tool', () => {
         name: 'calculator',
         description: 'Calculates things',
         instructions: 'Use for math',
-        schema: z.object({
-          operation: z.enum(['add', 'subtract']),
-          a: z.number(),
-          b: z.number()
+        schema: a.object({
+          operation: a.enum(['add', 'subtract']),
+          a: a.number(),
+          b: a.number()
         }),
         call: (input) => {
           return input.operation === 'add' ? input.a + input.b : input.a - input.b;
@@ -83,7 +84,7 @@ describe('Tool', () => {
         name: 'validator',
         description: 'Validates input',
         instructions: 'Strict validation',
-        schema: z.object({ value: z.number().positive() }),
+        schema: a.object({ value: a.number().positive() }),
         call: (input) => input.value
       });
 
@@ -98,7 +99,7 @@ describe('Tool', () => {
         name: 'json-tool',
         description: 'Requires JSON',
         instructions: 'JSON only',
-        schema: z.object({ data: z.string() }),
+        schema: a.object({ data: a.string() }),
         call: (input) => input.data
       });
 
@@ -118,8 +119,8 @@ describe('Tool', () => {
         name: 'inner-obj',
         description: 'Takes a nested obj',
         instructions: 'Pass program as an object',
-        schema: z.object({
-          program: z.object({ kind: z.string(), value: z.number() }),
+        schema: a.object({
+          program: a.object({ kind: a.string(), value: a.number() }),
         }),
         call: (input) => input.program.value,
       });
@@ -132,7 +133,7 @@ describe('Tool', () => {
       });
       const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
       const parsed = await tool.parse(
-        ctx, doubleEncoded, undefined, undefined,
+        ctx, doubleEncoded, undefined,
         (info) => repairs.push({ fields: [...info.fields], success: info.success }),
       );
       expect(parsed.program).toEqual({ kind: 'new', value: 42 });
@@ -144,13 +145,13 @@ describe('Tool', () => {
         name: 'normal',
         description: 'Normal usage',
         instructions: '',
-        schema: z.object({ payload: z.object({ x: z.number() }) }),
+        schema: a.object({ payload: a.object({ x: a.number() }) }),
         call: (input) => input.payload.x,
       });
       const ctx = {} as Context<{}, {}>;
       const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
       const parsed = await tool.parse(
-        ctx, JSON.stringify({ payload: { x: 7 } }), undefined, undefined,
+        ctx, JSON.stringify({ payload: { x: 7 } }), undefined,
         (info) => repairs.push({ fields: [...info.fields], success: info.success }),
       );
       expect(parsed.payload.x).toBe(7);
@@ -166,7 +167,7 @@ describe('Tool', () => {
         name: 'capped',
         description: 'Has an args size cap',
         instructions: '',
-        schema: z.object({ payload: z.string() }),
+        schema: a.object({ payload: a.string() }),
         call: (input) => input.payload.length,
         maxArgsLength: 100,
       });
@@ -184,15 +185,14 @@ describe('Tool', () => {
       // Real-world failure mode (Claude Sonnet 4.5 over OpenRouter):
       // the model double-encodes `program` AND the inner JSON itself
       // is broken (mismatched brackets / truncation). Repair detects
-      // the encoding attempt but inner JSON.parse throws — instead of
-      // burying the model in a huge zod aggregate error, we surface a
-      // pinpointed message naming the field and the encoding mistake.
+      // the encoding attempt but the inner JSON.parse fails, so the call
+      // fails with the schema echo pointing at the field.
       const tool = new Tool({
         name: 'big-prog',
         description: 'Takes a program',
         instructions: '',
-        schema: z.object({
-          program: z.object({ kind: z.string() }),
+        schema: a.object({
+          program: a.object({ kind: a.string() }),
         }),
         call: (input) => input.program.kind,
       });
@@ -206,17 +206,17 @@ describe('Tool', () => {
       const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
       let thrownMessage = '';
       try {
-        await tool.parse(ctx, malformedDoubleEncoded, undefined, undefined,
+        await tool.parse(ctx, malformedDoubleEncoded, undefined,
           (info) => repairs.push({ fields: [...info.fields], success: info.success }));
       } catch (e: any) {
         thrownMessage = e.message;
       }
       expect(repairs).toEqual([{ fields: ['program'], success: false }]);
-      // Targeted message — names the field, calls out the encoding,
-      // tells the model what to send instead.
-      expect(thrownMessage).toContain('program');
-      expect(thrownMessage).toContain('JSON-encoded string');
-      expect(thrownMessage).toContain('as a JSON object directly');
+      // Targeted message: names the field, calls out the JSON text that
+      // doesn't parse, tells the model to send the value itself.
+      expect(thrownMessage).toContain('1 problem in the arguments of big-prog');
+      expect(thrownMessage).toContain('program: Expected an object, got a string of JSON text');
+      expect(thrownMessage).toContain('send the value itself, not as a string');
     });
 
     it('should surface the original error when repair candidate also fails (and signal repair-failed)', async () => {
@@ -224,7 +224,7 @@ describe('Tool', () => {
         name: 'strict',
         description: 'Strict numeric',
         instructions: '',
-        schema: z.object({ payload: z.object({ x: z.number() }) }),
+        schema: a.object({ payload: a.object({ x: a.number() }) }),
         call: (input) => input.payload.x,
       });
       const ctx = {} as Context<{}, {}>;
@@ -234,7 +234,7 @@ describe('Tool', () => {
       });
       const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
       await expect(
-        tool.parse(ctx, bad, undefined, undefined,
+        tool.parse(ctx, bad, undefined,
           (info) => repairs.push({ fields: [...info.fields], success: info.success })),
       ).rejects.toThrow();
       // Repair WAS attempted (visibility into model misbehavior) — but
@@ -248,7 +248,7 @@ describe('Tool', () => {
         name: 'custom-validator',
         description: 'Has custom validation',
         instructions: 'Custom rules',
-        schema: z.object({ email: z.string().email() }),
+        schema: a.object({ email: a.string().format('email') }),
         validate: async (input) => {
           if (input.email.endsWith('@blocked.com')) {
             throw new Error('Domain blocked');
@@ -259,7 +259,7 @@ describe('Tool', () => {
 
       const ctx = {} as Context<{}, {}>;
 
-      // Should pass Zod validation but fail custom validation
+      // Should pass schema validation but fail custom validation
       const blockedArgs = JSON.stringify({ email: 'user@blocked.com' });
       await expect(tool.parse(ctx, blockedArgs)).rejects.toThrow('Domain blocked');
 
@@ -270,21 +270,22 @@ describe('Tool', () => {
     });
   });
 
-  describe('Custom parse (Zod replacement)', () => {
-    // The optional `parse` hook fully REPLACES Zod. When supplied the
-    // pipeline is JSON.parse → parse → validate; Zod is never consulted.
-    // Lets a caller (e.g. @aeye/query) surface concise, compiler-style
-    // errors with source underlines instead of Zod's aggregate output.
+  describe('Custom parse (deprecated hook)', () => {
+    // The optional `parse` hook owns the arguments: it gets the decoded
+    // value when it fits the schema, the raw value otherwise, and its Error
+    // is what the model is told. The pipeline is JSON.parse → decode →
+    // parse → validate. Lets a caller (e.g. @aeye/query) surface concise,
+    // compiler-style errors with source underlines.
 
-    it('should use the custom parser and skip Zod entirely', async () => {
-      // Zod schema would REJECT this shape (requires { value: number }),
-      // but the custom parser accepts the raw value and produces its own
-      // typed result. Zod must never run, so parse succeeds.
-      const tool = new Tool<{}, {}, string, { value: number }>({
+    it('should use the custom parser even when the schema rejects the args', async () => {
+      // The schema would REJECT this shape (requires { value: number }),
+      // but the custom parser gets the raw value and produces its own
+      // typed result, so parse succeeds.
+      const tool = new Tool<{}, {}, string, { value: number }, number>({
         name: 'byo-parser',
         description: 'Bring your own parser',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         parse: (raw) => {
           const r = raw as { n?: unknown };
           return { value: Number(r.n) };
@@ -292,17 +293,17 @@ describe('Tool', () => {
         call: (input) => input.value,
       });
       const ctx = {} as Context<{}, {}>;
-      // Shape Zod would reject ({ n: "5" } has no numeric `value`).
+      // Shape the schema would reject ({ n: "5" } has no numeric `value`).
       const parsed = await tool.parse(ctx, JSON.stringify({ n: '5' }));
       expect(parsed).toEqual({ value: 5 });
     });
 
-    it('should short-circuit with a returned Error and NOT surface Zod errors', async () => {
-      const tool = new Tool<{}, {}, string, { value: number }>({
+    it('should short-circuit with a returned Error and NOT surface schema errors', async () => {
+      const tool = new Tool<{}, {}, string, { value: number }, number>({
         name: 'byo-error-return',
         description: 'Custom parser returns rich error',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         parse: () => new Error('nice compiler-style error ^^^ here'),
         call: (input) => input.value,
       });
@@ -314,8 +315,8 @@ describe('Tool', () => {
         msg = e.message;
       }
       expect(msg).toBe('nice compiler-style error ^^^ here');
-      // Zod's message vocabulary must not appear — it never ran.
-      expect(msg).not.toMatch(/expected|invalid_type|zod/i);
+      // The schema's message vocabulary must not appear.
+      expect(msg).not.toMatch(/expected|problem|zod/i);
     });
 
     it('should propagate a rich caller-supplied Error subclass (thrown)', async () => {
@@ -327,11 +328,11 @@ describe('Tool', () => {
           this.name = 'RichError';
         }
       }
-      const tool = new Tool<{}, {}, string, { value: number }>({
+      const tool = new Tool<{}, {}, string, { value: number }, number>({
         name: 'byo-rich',
         description: 'Custom parser throws rich error',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         parse: () => {
           throw new RichError('underlined error', [{ code: 'field-type.unknown' }]);
         },
@@ -349,11 +350,11 @@ describe('Tool', () => {
     });
 
     it('should still run the post-validate hook after custom parse', async () => {
-      const tool = new Tool<{}, {}, string, { value: number }>({
+      const tool = new Tool<{}, {}, string, { value: number }, number>({
         name: 'byo-validate',
         description: 'Custom parser + validate',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         parse: (raw) => ({ value: (raw as { value: number }).value }),
         validate: (input) => {
           if (input.value < 0) throw new Error('must be non-negative');
@@ -366,23 +367,23 @@ describe('Tool', () => {
       expect(parsed).toEqual({ value: 3 });
     });
 
-    it('should be fully backward-compatible: no parse option ⇒ Zod path unchanged', async () => {
-      const tool = new Tool<{}, {}, string, { value: number }>({
+    it('without a parse option the schema decodes and rejects', async () => {
+      const tool = new Tool<{}, {}, string, { value: number }, number>({
         name: 'no-byo',
-        description: 'Default Zod path',
+        description: 'Default schema path',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value,
       });
       const ctx = {} as Context<{}, {}>;
-      // Valid → Zod accepts.
+      // Valid → the schema accepts.
       expect(await tool.parse(ctx, JSON.stringify({ value: 9 }))).toEqual({ value: 9 });
-      // Invalid → Zod rejects, exactly as before.
-      await expect(tool.parse(ctx, JSON.stringify({ value: 'nope' }))).rejects.toThrow();
+      // Invalid → the schema rejects, with the model-facing echo.
+      await expect(tool.parse(ctx, JSON.stringify({ value: 'nope' }))).rejects.toThrow(/value: Expected a number, got string/);
     });
 
     it('should drive the DECODED type from parse\'s return type (class instance)', async () => {
-      // A custom `parse` that builds a class instance. The Zod `schema`
+      // A custom `parse` that builds a class instance. The `schema`
       // stays the WIRE shape ({ value: number }); `parse` turns the raw
       // wire value into a `Built`. Per the `TDecoded` generic, the handler
       // `call` (and `validate`) must receive the DECODED `Built`, not the
@@ -405,7 +406,7 @@ describe('Tool', () => {
         name: 'decoded-class',
         description: 'parse returns a class instance',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         parse: (raw) => new Built(Number((raw as { value: number }).value)),
         validate: (input) => {
           // Compile-time: `input` is `Built` (has `doubled`), not `{ value }`.
@@ -451,7 +452,7 @@ describe('Tool', () => {
         name: 'decoded-number',
         description: 'parse returns a bare number',
         instructions: '',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         parse: (raw) => (raw as { value: number }).value + 1,
         call: (input) => {
           // Type-level: `input` is exactly `number`, not the wire object.
@@ -480,7 +481,7 @@ describe('Tool', () => {
         name: 'decoded-array',
         description: 'parse returns an array',
         instructions: '',
-        schema: z.object({ csv: z.string() }),
+        schema: a.object({ csv: a.string() }),
         parse: (raw) => (raw as { csv: string }).csv.split(',').map(Number),
         call: (input) => {
           // Type-level: `input` is `number[]`.
@@ -503,7 +504,7 @@ describe('Tool', () => {
         name: 'multiply',
         description: 'Multiplies numbers',
         instructions: 'Multiply two numbers',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input) => input.a * input.b
       });
 
@@ -518,7 +519,7 @@ describe('Tool', () => {
         name: 'context-reader',
         description: 'Reads context',
         instructions: 'Accesses context',
-        schema: z.object({ key: z.string() }),
+        schema: a.object({ key: a.string() }),
         call: (input, refs, ctx: any) => {
           return `${input.key}: ${ctx.userId}`;
         }
@@ -535,7 +536,7 @@ describe('Tool', () => {
         name: 'helper',
         description: 'Helper tool',
         instructions: 'Helps',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'helper-result'
       });
 
@@ -543,7 +544,7 @@ describe('Tool', () => {
         name: 'main',
         description: 'Main tool',
         instructions: 'Uses helper',
-        schema: z.object({}),
+        schema: a.object({}),
         refs: [helperTool],
         call: async (input, refs, ctx) => {
           const helperResult = await refs[0].run({}, ctx);
@@ -562,7 +563,7 @@ describe('Tool', () => {
         name: 'async-tool',
         description: 'Async operations',
         instructions: 'Waeye',
-        schema: z.object({ delay: z.number() }),
+        schema: a.object({ delay: a.number() }),
         call: async (input) => {
           await new Promise(resolve => setTimeout(resolve, input.delay));
           return `Waited ${input.delay}ms`;
@@ -582,7 +583,7 @@ describe('Tool', () => {
         name: 'error-tool',
         description: 'Throws errors',
         instructions: 'Will fail',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Execution failed');
         }
@@ -592,20 +593,6 @@ describe('Tool', () => {
 
       expect(() => tool.run({}, ctx)).toThrow('Execution failed');
     });
-
-    it('should handle schema resolution errors', async () => {
-      const tool = new Tool({
-        name: 'no-schema',
-        description: 'Missing schema',
-        instructions: 'No schema',
-        schema: () => undefined,
-        call: (input) => 'result'
-      });
-
-      const ctx = {} as Context<{}, {}>;
-
-      await expect(tool.parse(ctx, '{}')).rejects.toThrow('Not able to build a schema');
-    });
   });
 
   describe('Definition Generation', () => {
@@ -614,9 +601,9 @@ describe('Tool', () => {
         name: 'weather',
         description: 'Get weather information',
         instructions: 'Use this to get weather for location',
-        schema: z.object({
-          location: z.string().describe('The city name'),
-          unit: z.enum(['celsius', 'fahrenheit']).optional()
+        schema: a.object({
+          location: a.string().describe('The city name'),
+          unit: a.enum(['celsius', 'fahrenheit']).optional()
         }),
         call: (input) => `Weather for ${input.location}`
       });
@@ -639,7 +626,7 @@ describe('Tool', () => {
         description: 'Calculate',
         instructions: 'Perform {{operation}} on the numbers',
         input: () => ({ operation: 'addition' }),
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input) => input.a + input.b
       });
 
@@ -650,21 +637,6 @@ describe('Tool', () => {
       const [instructions] = compiled!;
       expect(instructions).toContain('Perform addition on the numbers');
     });
-
-    it('should return undefined when schema is not available', async () => {
-      const tool = new Tool({
-        name: 'no-schema',
-        description: 'No schema available',
-        instructions: 'Will not compile',
-        schema: () => undefined,
-        call: () => 'result'
-      });
-
-      const ctx = {} as Context<{}, {}>;
-      const compiled = await tool.compile(ctx);
-
-      expect(compiled).toBeUndefined();
-    });
   });
 
   describe('Applicability', () => {
@@ -673,7 +645,7 @@ describe('Tool', () => {
         name: 'always-available',
         description: 'Always available',
         instructions: 'Always works',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -689,7 +661,7 @@ describe('Tool', () => {
         name: 'custom-applicable',
         description: 'Custom check',
         instructions: 'Custom',
-        schema: z.object({}),
+        schema: a.object({}),
         applicable: () => true,
         call: () => 'result'
       });
@@ -705,7 +677,7 @@ describe('Tool', () => {
         name: 'conditional',
         description: 'Conditionally available',
         instructions: 'Sometimes works',
-        schema: z.object({}),
+        schema: a.object({}),
         applicable: (ctx: any) => ctx.hasPermission === true,
         call: () => 'result'
       });
@@ -722,7 +694,7 @@ describe('Tool', () => {
         name: 'async-check',
         description: 'Async check',
         instructions: 'Async',
-        schema: z.object({}),
+        schema: a.object({}),
         applicable: async (ctx: any) => {
           // Simulate async check (e.g., database query)
           await new Promise(resolve => setTimeout(resolve, 10));
@@ -738,12 +710,13 @@ describe('Tool', () => {
       expect(await tool.applicable(userCtx)).toBe(false);
     });
 
-    it('should return false when schema is undefined', async () => {
+    it('should return false when applicable says no', async () => {
       const tool = new Tool({
         name: 'no-schema',
         description: 'No schema',
         instructions: 'Instructions',
-        schema: () => undefined,
+        schema: a.object({}),
+        applicable: () => false,
         call: () => 'result'
       });
 
@@ -758,7 +731,7 @@ describe('Tool', () => {
         name: 'available',
         description: 'Available',
         instructions: 'Available',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -766,7 +739,8 @@ describe('Tool', () => {
         name: 'not-available',
         description: 'Not available',
         instructions: 'Not available',
-        schema: () => undefined, // Not applicable
+        schema: a.object({}),
+        applicable: () => false, // Not applicable
         call: () => 'result'
       });
 
@@ -775,7 +749,7 @@ describe('Tool', () => {
         name: 'with-refs',
         description: 'With refs',
         instructions: 'With refs',
-        schema: z.object({}),
+        schema: a.object({}),
         refs: [applicableTool, notApplicableTool],
         call: (input, [available, notAvailable]) => 'result'
       });
@@ -792,7 +766,8 @@ describe('Tool', () => {
         name: 'not-available-1',
         description: 'Not available 1',
         instructions: 'Not available',
-        schema: () => undefined,
+        schema: a.object({}),
+        applicable: () => false,
         call: () => 'result'
       });
 
@@ -800,7 +775,8 @@ describe('Tool', () => {
         name: 'not-available-2',
         description: 'Not available 2',
         instructions: 'Not available',
-        schema: () => undefined,
+        schema: a.object({}),
+        applicable: () => false,
         call: () => 'result'
       });
 
@@ -808,7 +784,7 @@ describe('Tool', () => {
         name: 'all-refs-unavailable',
         description: 'All refs unavailable',
         instructions: 'Instructions',
-        schema: z.object({}),
+        schema: a.object({}),
         refs: [notApplicableTool1, notApplicableTool2],
         call: (input, refs) => 'result'
       });
@@ -827,7 +803,7 @@ describe('Tool', () => {
         name: 'no-instructions',
         description: 'No instructions',
         instructions: '', // Empty instructions
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -843,7 +819,7 @@ describe('Tool', () => {
         name: 'with-instructions',
         description: 'With instructions',
         instructions: 'Use this tool to do something',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -863,7 +839,7 @@ describe('Tool', () => {
         name: 'with-runner',
         description: 'With runner',
         instructions: 'Instructions',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -890,7 +866,7 @@ describe('Tool', () => {
         name: 'logging-tool',
         description: 'Logging tool',
         instructions: 'Instructions',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (input) => input.value * 2
       });
 
@@ -915,7 +891,7 @@ describe('Tool', () => {
 });
 
 describe('tool choice helpers', () => {
-  const tool = (name: string) => ({ name, parameters: TEXT_TOOL_SCHEMA });
+  const tool = (name: string) => ({ name, parameters: TEXT_TOOL_SCHEMA.bind() });
 
   it('forcesTool is true only for choices that make the model call a tool', () => {
     expect(forcesTool('required')).toBe(true);
@@ -942,26 +918,29 @@ describe('tool choice helpers', () => {
 describe('describeTool', () => {
   it('appends a grammar to the description of a free-text tool', () => {
     const format: ToolTextFormat = { type: 'grammar', syntax: 'regex', definition: '^[0-9]+$' };
-    expect(describeTool({ name: 'n', description: 'A number', parameters: TEXT_TOOL_SCHEMA, format }))
+    expect(describeTool({ name: 'n', description: 'A number', parameters: TEXT_TOOL_SCHEMA.bind(), format }))
       .toBe('A number\n\nThe input must match this regex grammar:\n^[0-9]+$');
   });
 
   it('keeps the description of other tools', () => {
-    expect(describeTool({ name: 'n', description: 'Anything', parameters: TEXT_TOOL_SCHEMA, format: { type: 'text' } })).toBe('Anything');
-    expect(describeTool({ name: 'n', parameters: TEXT_TOOL_SCHEMA })).toBeUndefined();
+    expect(describeTool({ name: 'n', description: 'Anything', parameters: TEXT_TOOL_SCHEMA.bind(), format: { type: 'text' } })).toBe('Anything');
+    expect(describeTool({ name: 'n', parameters: TEXT_TOOL_SCHEMA.bind() })).toBeUndefined();
   });
 });
 
 describe('Tool.parse under OpenAI strict', () => {
-  it('a null for a left-out optional field leaves no key, even nested', async () => {
-    const { OPENAI_STRICT } = await import('../schema/dialects/openai');
+  it('a null for a left-out optional field leaves no key, even nested; pairs become a record', async () => {
     const tool = new Tool({
       name: 'sig', description: 'd', instructions: 'i',
-      schema: z.object({ a: z.number(), b: z.string().optional(), inner: z.object({ c: z.number().optional(), d: z.string() }) }),
+      schema: a.object({ a: a.number(), b: a.string().optional(), inner: a.object({ c: a.number().optional(), d: a.string() }), tags: a.record(a.number()) }),
       call: () => 'ok',
     });
-    const parsed = await tool.parse({} as Context<{}, {}>, JSON.stringify({ a: 1, b: null, inner: { c: null, d: 'x' } }), undefined, OPENAI_STRICT) as Record<string, unknown>;
-    expect(parsed).toEqual({ a: 1, inner: { d: 'x' } });
+    const ctx = {} as Context<{}, {}>;
+    const definition = (await tool.definition(ctx))!;
+    const plan = planRequest({ tools: [definition] }, { id: 'gpt-4o', provider: 'openai', capabilities: ['toolsStrict', 'structured'] });
+    expect(plan.get('sig').strict).toBe(true);
+    const parsed = await tool.parse(ctx, JSON.stringify({ a: 1, b: null, inner: { c: null, d: 'x' }, tags: [{ key: 'k', value: 2 }] }), plan) as Record<string, unknown>;
+    expect(parsed).toEqual({ a: 1, inner: { d: 'x' }, tags: { k: 2 } });
     expect('b' in parsed).toBe(false);
     expect('c' in (parsed['inner'] as object)).toBe(false);
   });

@@ -19,7 +19,7 @@
  * one on resume.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt, PromptEvent } from '../prompt';
 import { AnyTool, Tool, PromptSuspend, ToolInterrupt } from '../tool';
 import { Context, Message } from '../types';
@@ -41,7 +41,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'fast',
         description: 'Fast tool',
         instructions: 'Returns quickly',
-        schema: z.object({ id: z.number() }),
+        schema: a.object({ id: a.number() }),
         call: () => {
           controller.abort();
           return 'fast-done';
@@ -51,7 +51,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'slow',
         description: 'Slow tool',
         instructions: 'Returns slowly',
-        schema: z.object({ id: z.number() }),
+        schema: a.object({ id: a.number() }),
         call: async () => {
           await new Promise((r) => setTimeout(r, 500));
           slowFinished = true;
@@ -123,7 +123,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'aborter',
         description: 'Aborts after running',
         instructions: 'Calls abort and returns',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           controller.abort();
           return 'A-result';
@@ -133,7 +133,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'B',
         description: 'Tool B',
         instructions: 'Tool B body',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           bRun();
           return 'B-result';
@@ -143,7 +143,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'C',
         description: 'Tool C',
         instructions: 'Tool C body',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           cRun();
           return 'C-result';
@@ -211,7 +211,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'interrupter',
         description: 'Throws ToolInterrupt',
         instructions: 'Throws an interrupt',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           // Abort the controller too so the second tool's eventual
           // yield gets skipped by the signal-check inside the loop.
@@ -223,7 +223,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'other',
         description: 'Other tool',
         instructions: 'Other tool body',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise((r) => setTimeout(r, 200));
           return 'other-done';
@@ -286,7 +286,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'fast',
         description: 'Fast',
         instructions: 'Returns quickly',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           controller.abort();
           return 'fast-done';
@@ -296,7 +296,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'slow',
         description: 'Slow',
         instructions: 'Returns slowly',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           await new Promise((r) => setTimeout(r, 500));
           return 'slow-done';
@@ -359,7 +359,7 @@ describe('Prompt tool_call ↔ tool result pairing', () => {
         name: 'suspender',
         description: 'Suspends execution',
         instructions: 'Throws PromptSuspend',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new PromptSuspend('Waiting for approval');
         },

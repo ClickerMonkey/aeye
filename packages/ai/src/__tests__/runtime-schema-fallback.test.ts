@@ -5,19 +5,19 @@
  * structured response comes back empty/unparseable under `'auto'`) is unit-
  * tested in `@aeye/core`'s `prompt-runtime-schema-fallback.test.ts`. This test
  * exercises the FULL loop end-to-end: a real `@aeye/core` `Prompt` whose
- * executor runs the ai-layer `applySchemaDeliveryFallback` on every request.
+ * executor prepares every request for its model as a provider does
+ * (`prepareRequest`).
  *
- * Scenario: an OpenAI-family model (whose descriptor CAN express the schema, so
- * the STATIC `canExpress` fallback never fires) returns EMPTY content on the
- * first structured attempt. Core promotes delivery to prompt-text; on the retry
- * `applySchemaDeliveryFallback` DROPS `response_format` and APPENDS the schema
- * as prompt text, and the Prompt's `parse` hook then runs on the retry's JSON.
+ * Scenario: an OpenAI-family model with structured output returns EMPTY
+ * content on the first structured attempt. Core promotes delivery to
+ * prompt-text; on the retry `prepareRequest` DROPS `response_format` and
+ * APPENDS the schema as prompt text, and the Prompt's `parse` hook then runs
+ * on the retry's JSON.
  */
 
-import { z } from 'zod';
-import { Prompt } from '@aeye/core';
+import { a } from '@aeye/schema';
+import { prepareRequest, Prompt } from '@aeye/core';
 import type { Context, Request, Response } from '@aeye/core';
-import { applySchemaDeliveryFallback } from '../apis/schema-fallback';
 import type { ModelInfo } from '../types';
 
 function makeModel(provider: string, id: string): ModelInfo {
@@ -38,15 +38,17 @@ interface CallRecord {
   systemText: string;
 }
 
+const PROMPT_HEADER = 'The response must be JSON of this type:';
+
 /**
- * A core executor that mirrors what `ChatAPI.executeRequest` does: run
- * `applySchemaDeliveryFallback(request, model)` before dispatch, then return the
- * next configured `content`. Records the post-fallback request state per call.
+ * A core executor that mirrors what a provider does: run
+ * `prepareRequest(request, model)` before dispatch, then return the next
+ * configured `content`. Records the prepared request state per call.
  */
 function makeExecutor(model: ModelInfo, contents: string[], records: CallRecord[]) {
   let i = 0;
   return async (prompted: Request): Promise<Response> => {
-    const request = applySchemaDeliveryFallback(prompted, model);
+    const request = await prepareRequest(prompted, model);
     const sys = request.messages.find((m) => m.role === 'system');
     records.push({
       hasResponseFormat: request.responseFormat !== undefined,
@@ -68,7 +70,7 @@ function makePrompt(parseInputs: unknown[]) {
     name: 'runtime-fallback-ai',
     description: 'Runtime schema-delivery fallback (ai layer)',
     content: 'You are a helpful assistant.',
-    schema: z.object({ value: z.number() }),
+    schema: a.object({ value: a.number() }),
     strict: false,
     schemaDelivery: 'auto',
     outputRetries: 3,
@@ -95,15 +97,14 @@ describe('runtime schema-delivery fallback (ai integration)', () => {
     expect(result).toEqual({ value: 5 });
     expect(records).toHaveLength(2);
 
-    // Attempt 1: structured output sent (descriptor CAN express the schema, so
-    // the static fallback is a no-op), plain system prompt.
+    // Attempt 1: structured output sent, plain system prompt.
     expect(records[0].hasResponseFormat).toBe(true);
     expect(records[0].systemText).toBe('You are a helpful assistant.');
 
     // Attempt 2: response_format dropped + schema delivered as prompt text.
     expect(records[1].hasResponseFormat).toBe(false);
     expect(records[1].systemText).toContain('You are a helpful assistant.');
-    expect(records[1].systemText).toContain('JSON object conforming to this schema');
+    expect(records[1].systemText).toContain(PROMPT_HEADER);
 
     // The parse hook ran only on the retry's valid JSON.
     expect(parseInputs).toEqual([{ value: 5 }]);
@@ -123,7 +124,7 @@ describe('runtime schema-delivery fallback (ai integration)', () => {
     expect(result).toEqual({ value: 6 });
     expect(records[0].hasResponseFormat).toBe(true);
     expect(records[1].hasResponseFormat).toBe(false);
-    expect(records[1].systemText).toContain('JSON object conforming to this schema');
+    expect(records[1].systemText).toContain(PROMPT_HEADER);
     expect(parseInputs).toEqual([{ value: 6 }]);
   });
 

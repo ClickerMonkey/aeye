@@ -9,7 +9,7 @@
  * - Custom runners
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Agent } from '../agent';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
@@ -35,7 +35,7 @@ describe('Agent', () => {
         name: 'helper',
         description: 'Helper tool',
         instructions: 'Helps with tasks',
-        schema: z.object({ input: z.string() }),
+        schema: a.object({ input: a.string() }),
         call: (input) => input.input.toUpperCase()
       });
 
@@ -55,7 +55,7 @@ describe('Agent', () => {
         name: 'tool1',
         description: 'Tool',
         instructions: 'Tool instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x * 2
       });
 
@@ -130,7 +130,7 @@ describe('Agent', () => {
         name: 'calculator',
         description: 'Calculate',
         instructions: 'Performs calculations',
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: a.object({ a: a.number(), b: a.number() }),
         call: (input): number => input.a + input.b
       });
 
@@ -169,7 +169,7 @@ describe('Agent', () => {
         name: 'fetch',
         description: 'Fetch data',
         instructions: 'Fetches data from a URL',
-        schema: z.object({ url: z.string() }),
+        schema: a.object({ url: a.string() }),
         call: async (input) => {
           return { data: `Data from ${input.url}` };
         }
@@ -179,7 +179,7 @@ describe('Agent', () => {
         name: 'process',
         description: 'Process data',
         instructions: 'Processes fetched data',
-        schema: z.object({ data: z.string() }),
+        schema: a.object({ data: a.string() }),
         call: (input) => {
           return input.data.toUpperCase();
         }
@@ -353,7 +353,7 @@ describe('Agent', () => {
         name: 'tool1',
         description: 'Tool',
         instructions: 'Tool instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x
       });
 
@@ -378,7 +378,7 @@ describe('Agent', () => {
         name: 'tool1',
         description: 'Tool',
         instructions: 'Tool instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x,
         applicable: () => false
       });
@@ -404,7 +404,7 @@ describe('Agent', () => {
         name: 'tool1',
         description: 'Tool 1',
         instructions: 'Tool 1 instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x,
         applicable: () => false
       });
@@ -413,7 +413,7 @@ describe('Agent', () => {
         name: 'tool2',
         description: 'Tool 2',
         instructions: 'Tool 2 instructions',
-        schema: z.object({ x: z.number() }),
+        schema: a.object({ x: a.number() }),
         call: (input) => input.x,
         applicable: () => true
       });
@@ -494,7 +494,7 @@ describe('Agent', () => {
         name: 'fetch',
         description: 'Fetch data',
         instructions: 'Fetches data about a given topic',
-        schema: z.object({ topic: z.string() }),
+        schema: a.object({ topic: a.string() }),
         call: async (input) => {
           return {
             articles: [
@@ -510,7 +510,7 @@ describe('Agent', () => {
         name: 'summarize',
         description: 'Summarize',
         instructions: 'Summarizes text to key points',
-        schema: z.object({ text: z.string() }),
+        schema: a.object({ text: a.string() }),
         call: (input) => {
           return input.text.substring(0, 20) + '...';
         }
@@ -549,7 +549,7 @@ describe('Agent', () => {
         name: 'error',
         description: 'Throws error',
         instructions: 'Always fails when called',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => {
           throw new Error('Tool failed');
         }

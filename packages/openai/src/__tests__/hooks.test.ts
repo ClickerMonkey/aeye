@@ -82,7 +82,8 @@ describe('OpenAIProvider Hooks', () => {
       // Check that pre-request hook was called with params
       expect(beforeRequestHook).toHaveBeenCalledTimes(1);
       expect(beforeRequestHook).toHaveBeenCalledWith(
-        request,
+        // The request as sent: planned for the model (`prepareRequest`)
+        expect.objectContaining({ messages: request.messages }),
         expect.objectContaining({
           model: 'gpt-4',
           messages: expect.any(Array)
@@ -94,7 +95,8 @@ describe('OpenAIProvider Hooks', () => {
       // Check that post-request hook was called with params
       expect(afterRequestHook).toHaveBeenCalledTimes(1);
       expect(afterRequestHook).toHaveBeenCalledWith(
-        request,
+        // The request as sent: planned for the model (`prepareRequest`)
+        expect.objectContaining({ messages: request.messages }),
         expect.objectContaining({
           model: 'gpt-4',
           messages: expect.any(Array)
@@ -160,7 +162,8 @@ describe('OpenAIProvider Hooks', () => {
       // Check that pre-request hook was called with params
       expect(beforeRequestHook).toHaveBeenCalledTimes(1);
       expect(beforeRequestHook).toHaveBeenCalledWith(
-        request,
+        // The request as sent: planned for the model (`prepareRequest`)
+        expect.objectContaining({ messages: request.messages }),
         expect.objectContaining({
           model: 'gpt-4',
           messages: expect.any(Array),
@@ -173,7 +176,8 @@ describe('OpenAIProvider Hooks', () => {
       // Check that post-request hook was called after streaming completed with params
       expect(afterRequestHook).toHaveBeenCalledTimes(1);
       expect(afterRequestHook).toHaveBeenCalledWith(
-        request,
+        // The request as sent: planned for the model (`prepareRequest`)
+        expect.objectContaining({ messages: request.messages }),
         expect.objectContaining({
           model: 'gpt-4',
           messages: expect.any(Array),

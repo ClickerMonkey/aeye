@@ -3,7 +3,7 @@
  * model round again, up to `reviewRetries`.
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { PromptError, ReviewRejectedError } from '../errors';
 import { Prompt, PromptEvent, PromptReview, PromptReviewContext } from '../prompt';
 import { AnyTool, Tool } from '../tool';
@@ -28,7 +28,7 @@ function reviewed(review: ReturnType<typeof reviewer>['review'], reviewRetries?:
     name: 'reviewed',
     description: 'Reviewed',
     content: 'Answer.',
-    schema: z.object({ value: z.number() }),
+    schema: a.object({ value: a.number() }),
     review,
     reviewRetries,
     tools,
@@ -96,7 +96,7 @@ describe('Prompt review', () => {
       name: 'lookup',
       description: 'Looks up',
       instructions: 'Look up',
-      schema: z.object({ q: z.string() }),
+      schema: a.object({ q: a.string() }),
       call: () => 'found',
     });
     const { review } = reviewer(['Check again.']);

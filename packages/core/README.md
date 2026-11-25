@@ -7,7 +7,7 @@ Core primitives for building AI agents, tools, and prompts with TypeScript. Prov
 - **🎯 Type-Safe Components** - Prompts, Tools, and Agents with full TypeScript support
 - **🔧 Tool Calling** - Native support for function/tool calling with schema validation
 - **📝 Template-Based Prompts** - Handlebars templates for dynamic prompt generation
-- **✅ Schema Validation** - Zod integration for structured inputs and outputs
+- **✅ Schemas for models** - `@aeye/schema` (`a`): one schema per tool or output, rendered per model, decoded back to your code's shape, with errors the model can act on
 - **🌊 Streaming Support** - First-class streaming for real-time AI responses
 - **🔄 Composable Architecture** - Tools can use other tools, prompts can use tools, agents orchestrate everything
 - **📊 Context Management** - Type-safe context threading and automatic token window management
@@ -16,7 +16,7 @@ Core primitives for building AI agents, tools, and prompts with TypeScript. Prov
 ## Installation
 
 ```bash
-npm install @aeye/core zod handlebars
+npm install @aeye/core @aeye/schema handlebars
 ```
 
 > **Note:** `@aeye/core` defines the primitives — you need an executor/streamer to run prompts. These are provided by `@aeye/ai` via `ai.buildCoreContext()`, or you can supply your own `execute` / `stream` functions.
@@ -41,8 +41,7 @@ All AI primitives implement the `Component` interface:
 ### Basic Prompt
 
 ```typescript
-import { Prompt } from '@aeye/core';
-import z from 'zod';
+import { a, Prompt } from '@aeye/core';
 
 const summarizer = new Prompt({
   name: 'summarize',
@@ -53,9 +52,9 @@ const summarizer = new Prompt({
   input: (input: { text: string }) => ({ text: input.text }),
 
   // Define output schema (structured JSON)
-  schema: z.object({
-    summary: z.string().describe('A concise summary'),
-    keyPoints: z.array(z.string()).describe('Main points'),
+  schema: a.object({
+    summary: a.string().describe('A concise summary'),
+    keyPoints: a.array(a.string()).describe('Main points'),
   }),
 });
 
@@ -76,17 +75,16 @@ console.log(result?.keyPoints);
 ### Creating Tools
 
 ```typescript
-import { Tool } from '@aeye/core';
-import z from 'zod';
+import { a, Tool } from '@aeye/core';
 
 const getWeather = new Tool({
   name: 'getWeather',
   description: 'Get current weather for a location',
   instructions: 'Use this tool to get weather data for {{location}}.',
 
-  schema: z.object({
-    location: z.string().describe('City name or coordinates'),
-    units: z.enum(['celsius', 'fahrenheit']).default('celsius'),
+  schema: a.object({
+    location: a.string().describe('City name or coordinates'),
+    units: a.enum(['celsius', 'fahrenheit']).default('celsius'),
   }),
 
   call: async (input, _refs, _ctx) => {
@@ -106,8 +104,7 @@ const getWeather = new Tool({
 ### Prompts with Tools
 
 ```typescript
-import { Prompt } from '@aeye/core';
-import z from 'zod';
+import { a, Prompt } from '@aeye/core';
 
 const travelAdvisor = new Prompt({
   name: 'travelAdvisor',
@@ -125,10 +122,10 @@ Use the getWeather tool to check current conditions, then provide:
 
   tools: [getWeather],
 
-  schema: z.object({
-    recommendations: z.array(z.string()),
-    packingList: z.array(z.string()),
-    weatherNotes: z.string(),
+  schema: a.object({
+    recommendations: a.array(a.string()),
+    packingList: a.array(a.string()),
+    weatherNotes: a.string(),
   }),
 });
 
@@ -176,7 +173,6 @@ for await (const event of summarizer.get(
 
 ```typescript
 import { Agent } from '@aeye/core';
-import z from 'zod';
 
 // Assume searchTool, summarizePrompt, and analyzePrompt are defined elsewhere
 const researchAgent = new Agent({
@@ -294,13 +290,15 @@ const contextTool = new Tool({
   description: 'Manage data records',
   instructions: 'Use this tool to read or write data.',
 
-  // Schema varies based on the caller's role
-  schema: (ctx: Context<MyContext, {}>) => {
-    if (ctx.userRole === 'admin') {
-      return z.object({ action: z.enum(['read', 'write', 'delete']) });
-    }
-    return z.object({ action: z.enum(['read']) });
-  },
+  // One static schema whose dynamic part varies with the caller's role:
+  // the step runs once per role (its `key`) and the ctx type is checked.
+  schema: a
+    .declare<{ Action: 'read' | 'write' | 'delete' }>()
+    .dynamic(
+      (ctx: Context<MyContext, {}>) => ({ Action: ctx.userRole === 'admin' ? a.enum(['read', 'write', 'delete']) : a.enum(['read']) }),
+      { key: (ctx) => ctx.userRole },
+    )
+    .result(a.object({ action: a.ref('Action') })),
 
   // Tool is only available to authenticated users
   applicable: (ctx: Context<MyContext, {}>) => ctx.isAuthenticated,
@@ -313,16 +311,16 @@ const contextTool = new Tool({
 
 ### Custom Validation
 
-Add business-logic validation beyond Zod schema checks:
+Add business-logic validation beyond the schema's checks:
 
 ```typescript
 const placeOrder = new Tool({
   name: 'placeOrder',
   description: 'Place a product order',
 
-  schema: z.object({
-    itemId: z.string(),
-    quantity: z.number().int().min(1),
+  schema: a.object({
+    itemId: a.string(),
+    quantity: a.int().min(1),
   }),
 
   // Runs after schema parsing succeeds; throw to trigger re-prompting
@@ -398,7 +396,7 @@ const adaptivePrompt = new Prompt({
   name: 'adaptive',
   description: 'Adapts based on runtime stats',
   content: 'Solve: {{problem}}',
-  schema: z.object({ solution: z.string() }),
+  schema: a.object({ solution: a.string() }),
 
   reconfig: (stats, _ctx) => {
     // If many tool errors occurred, switch to one-at-a-time mode
@@ -468,9 +466,16 @@ const answer = new Prompt({
 | `reasoning` | Extended chain-of-thought reasoning |
 | `zdr` | Zero data retention |
 
-## Strict Mode
+## Schemas, strict mode and requests
 
-Each LLM provider that supports strict mode does so with its own JSON Schema dialect. `@aeye/core` reconciles them under a single `FormatDescriptor` so a Zod schema authored once works against any of them.
+A tool's arguments and a prompt's output are `@aeye/schema` schemas (`a`, re-exported by core). Each provider that has strict mode has its own JSON Schema dialect, and limits the whole request (Anthropic: 20 strict tools, 24 optional and 16 union-typed parameters; OpenAI: 128 tools, per-schema size limits). The provider plans every request for its model with `prepareRequest`: each schema is rendered in that model's dialect, fitted with the rest of the request, and the answer is decoded through the same rendering back to your code's shape. Requests degrade, they never error. Full details: [aeye-core-schema.md](./aeye-core-schema.md) and `@aeye/schema`'s `aeye-schema.md`.
+
+```typescript
+const schema = a.object({ name: a.string(), tags: a.record(a.string()), note: a.string().optional() });
+// OpenAI strict sees  { name, tags: [{ key, value }], note: string | null }
+// Gemini sees         { name, tags: { [k]: string }, note?: string }
+// call() always gets  { name: string; tags: Record<string, string>; note?: string }
+```
 
 ### `strict` on Tool / Prompt
 
@@ -478,108 +483,34 @@ Each LLM provider that supports strict mode does so with its own JSON Schema dia
 
 | Value | Meaning |
 |---|---|
-| `true` | **Require** strict. `@aeye/ai` filters selection down to models that declare strict support; the request fails if none qualify. |
-| `false` | **Force** lenient. Standard JSON Schema; no `strict: true` on the wire. |
-| `number > 0` (default `1`) | **Prefer** strict, accept fallback. Higher numbers win when there are more strict-requesting items than the chosen model's per-request budget allows. |
-| omitted | Treated as `1`. |
+| `true` | The strongest preference. `@aeye/ai` filters selection to models with strict support; in a request it's fitted first, and if the provider's limits still run out it goes non-strict (still validated) and records why. |
+| `false` | Not strict. (Claude has no non-strict structured output: a `strict: false` output goes as prompt text.) |
+| `number > 0` (default `1`) | Prefer strict. Higher numbers are fitted first. |
 
 ```typescript
-new Tool({ name: 'must',     /* default 1 */                schema: z.object({...}) }); // best-effort
-new Tool({ name: 'critical', strict: true,                  schema: z.object({...}) }); // hard require
-new Tool({ name: 'meh',      strict: false,                 schema: z.object({...}) }); // never strict
-new Tool({ name: 'top',      strict: 100,                   schema: z.object({...}) }); // high priority
+new Tool({ name: 'must',     /* default 1 */                schema: a.object({...}) }); // best-effort
+new Tool({ name: 'critical', strict: true,                  schema: a.object({...}) }); // fitted first
+new Tool({ name: 'meh',      strict: false,                 schema: a.object({...}) }); // never strict
+new Tool({ name: 'top',      strict: 100,                   schema: a.object({...}) }); // high priority
 ```
 
-Default `1` keeps "it just works" against unannotated models — strict where the chosen model supports it, lenient elsewhere. Set `true` only when strict is non-negotiable.
+### When a request is more than the provider takes
 
-### Native format descriptors
+- Past the strict slots or request totals, the least wanted schemas take a cheaper rendering (optionals as `null`, enums widened to strings, deep nesting as JSON text) or go non-strict.
+- Past the tool cap (OpenAI 128), the least wanted tools go behind one `run_tool({ tool, args })` dispatcher; the prompt decodes its calls back to the original tool, so your tools never see it.
+- Every compromise is on `request.plan.degradations` and each entry's `adjustments`.
 
-Nine descriptors ship out of the box:
+### Errors the model can act on
 
-| Descriptor | Family / Strict | Notes |
-|---|---|---|
-| `OPENAI_STRICT` | openai / strict | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, closed objects, restricted format whitelist. |
-| `ANTHROPIC_STRICT` | anthropic / strict | Closed objects, no recursion, no length / numeric range constraints, per-request slot budgets (20 strict tools / 24 optional params / 16 union types), format whitelist (OpenAI's nine plus `uri`). No spelling for "any" (see below), and structured output is always strict. |
-| `GOOGLE_STRICT` | google / strict | `prefixItems`, `$ref: '#'` recursion, `propertyOrdering` emitted, restricted format whitelist. |
-| `XAI_STRICT` | xai / strict | `anyOf` / `oneOf`, non-circular `$defs`, `prefixItems` tuples, open records, format whitelist with `uri`; no `allOf`. |
-| `LENIENT` | lenient / non-strict | No rewrites, all features pass through. Default for unannotated models. |
-| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT`, `XAI_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
-| `GOOGLE_NON_STRICT` | google / non-strict | `LENIENT` except `z.any()` is the empty schema `{}`: Gemini rejects a recursive `$defs/Any` whenever a tool call is forced. |
+A bad call or answer is told to the model in its own shape: its JSON echoed back with a marker under each mistake, "did you mean" for misspelt names, the expected type, within a size cap. `errorFormat` (`'summary' | 'list' | 'markers' | 'full'` or options) is set on the tool or prompt, for a whole run with `ctx.errorFormat`, or per parse.
 
-```typescript
-import { OPENAI_STRICT, ANTHROPIC_STRICT, getDescriptor, toJSONSchema } from '@aeye/core';
+### Values in instructions
 
-const schema = z.object({
-  name: z.string(),
-  tags: z.record(z.string(), z.string()),
-});
+`{{encode value}}` in tool instructions and prompt content writes a value the way this model writes it (pairs for OpenAI strict, an object for Gemini); `{{schema}}` writes the shape as TypeScript. Function forms get an encoder: `instructionsFn: (ctx, encode) => \`Call like ${encode(example)}\``.
 
-// Same Zod, different wire shapes:
-toJSONSchema(schema, OPENAI_STRICT);                    // tags → array of {key, value}
-toJSONSchema(schema, ANTHROPIC_STRICT);                 // tags → array of {key, value} (open records unsupported)
-toJSONSchema(schema, getDescriptor('google', true));    // tags → standard additionalProperties
+### Custom dialects
 
-// Backward-compat overloads still work:
-toJSONSchema(schema, true);   // === OPENAI_STRICT
-toJSONSchema(schema, false);  // === LENIENT
-```
-
-Under every descriptor, `z.nullable()` admits `null` (as an `anyOf` branch where the dialect has `anyOf`), only formats JSON Schema defines are emitted (`.regex()`'s `regex` is dropped), and an open record with a plain string key leaves out `propertyNames`. `strictify` accepts schemas named with `.meta({ id })`.
-
-### When a schema can't go out strict
-
-Some schemas fall back even under `strict: true`, because no allocation could make the API accept them:
-
-- **Size.** A schema over the dialect's per-schema `schemaSizeLimits`, or whose optional parameters or unions alone exceed the per-request budget, degrades to the family's non-strict descriptor.
-- **"Any" on Anthropic.** Anthropic strict rejects every spelling of "any JSON value" (`{}`, a typeless schema, `additionalProperties: true`, a recursive `$defs/Any`), so `ANTHROPIC_STRICT` uses `anyEncoding: 'none'`. A tool with `z.any()`, `z.unknown()` or a recursion cycle goes out non-strict; a structured output with one goes as prompt text (`canExpress` answers `false`).
-- **Anthropic structured output.** Anthropic compiles every structured output, strict flag or not, so `ANTHROPIC_STRICT` sets `structuredOutputAlwaysStrict`. An output that doesn't fit the strict limits on its own is sent as prompt text rather than as a "non-strict" schema the API would still reject.
-
-`SchemaBudget` takes separate tool and output descriptors (`new SchemaBudget(tool, output)`), so a model with strict structured output but no strict tools never gets `strict: true` tools, and the reverse.
-
-### Registering a custom descriptor
-
-You can ship your own descriptor for a provider or dialect that isn't supported natively. Define it as a `FormatDescriptor` value and register it with `registerDescriptor(descriptor)`:
-
-```typescript
-import { registerDescriptor, type FormatDescriptor, OPENAI_STRICT } from '@aeye/core';
-
-const MY_PROVIDER_STRICT: FormatDescriptor = {
-  ...OPENAI_STRICT,                   // start from a known good baseline
-  id: 'my-provider-strict',
-  family: 'openai',                   // or 'anthropic' | 'google' | 'lenient'
-  // Override only the fields that differ from the baseline:
-  recordEncoding: 'open-record',      // your provider supports additionalProperties: <schema>
-  tupleEncoding: 'prefix-items',
-  supportsRecursion: true,
-};
-
-registerDescriptor(MY_PROVIDER_STRICT);
-```
-
-Once registered:
-
-- Provider code can pass the descriptor to `toJSONSchema(schema, MY_PROVIDER_STRICT)` and `strictify(schema, MY_PROVIDER_STRICT)`.
-- The Prompt's validation roundtrip (which looks up descriptors by id from the request) will resolve `'my-provider-strict'` correctly.
-- A custom `Provider` implementation can return this descriptor from its `getStrictFormat`-equivalent helper.
-
-The descriptor's full field list is exported as the `FormatDescriptor` interface — every flag is documented inline. Common adjustments:
-
-| Field | Controls |
-|---|---|
-| `objectAllFieldsRequired` | Whether every property must appear in `required[]`. |
-| `objectClosedByDefault` | Whether every object emits `additionalProperties: false`. |
-| `recordEncoding` | `'array-of-pairs'` vs `'open-record'`. |
-| `tupleEncoding` | `'object-numeric-keys'` vs `'prefix-items'` vs `'items-union'`. |
-| `allowAllOf` / `allowAnyOf` / `allowOneOf` | JSON-Schema combinator support. |
-| `supportedStringFormats` | `'all'` (every format JSON Schema defines) or a `Set<string>` whitelist (`'date-time'`, `'email'`, etc.). |
-| `optionalAsNullable` | Whether `optional` fields are emitted as `T \| null` (OpenAI strict) vs omitted from `required[]`. |
-| `supportsRecursion` | Whether `$ref` self-reference works under this dialect. |
-| `anyEncoding` | How `z.any()` / `z.unknown()` is spelled: `'recursive-strict'`, `'recursive-open'`, `'flat'`, `'unconstrained'` (`{}`), or `'none'` (not sendable strict). |
-| `structuredOutputAlwaysStrict` | The API compiles every structured output, so an output over the strict limits goes as prompt text instead of degrading. |
-| `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request budget caps; `undefined` means no documented limit. |
-| `schemaSizeLimits` | Per-SCHEMA size ceilings (properties, nesting, total string characters, enum values); `undefined` means no documented limit. An over-size schema degrades on its own, even when it asked for `strict: true`. |
-
-You don't need to set every field — spread an existing descriptor and override deltas. Tested via `analyzeSchema` + the schema test suite; see the strict-mode guide in `@aeye/docs` for end-to-end examples.
+`registerProfile(profile)` from `@aeye/schema` adds a dialect; `profileFor(model)` picks it by family.
 
 ## API Reference
 
@@ -596,8 +527,9 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 - `description: string` - Purpose description
 - `content: string` - Handlebars template for the system message
 - `userTurn?: string` - User message added when there's no conversation (default: the context's, then `DEFAULT_USER_TURN`, `'Begin.'`)
-- `input?: (input: TInput, ctx: Context<TContext, TMetadata>) => Record<string, any>` - Maps raw input to template variables
-- `schema?: ZodType<TOutput> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => ZodType<TOutput> | false)` - Output schema; `false` disables structured output
+- `input?: (input: TInput, ctx: Context<TContext, TMetadata>, encode) => Record<string, any>` - Maps raw input to template variables; `encode(value)` writes a value of the output in the model's shape
+- `schema?: Bindable<TOutput, [ctx, input]>` - Output schema: an `a` schema, or a bundle whose dynamic step takes `(ctx, input)`. `a.string()` means the text, checked. Omitted: text
+- `errorFormat?: ErrorFormatInput` - How an answer that doesn't fit is told to the model
 - `strict?: boolean | number` - Strict output schema: `true` requires, `false` disables, a number is a preference priority (default: `1`)
 - `config?: Partial<Request> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Partial<Request> | false)` - AI request overrides
 - `tools?: TTools` - Tools the prompt may call
@@ -625,13 +557,14 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>, TDecoded extends unknown = TParams>
 ```
 
-`TDecoded` is the type a custom `parse` produces from the raw wire args (e.g. a built class instance); it types `call`, `validate`, and `metadataFn`. It defaults to `TParams` (the wire type) when no custom `parse` is supplied — `schema` always stays the wire type.
+`TParams` is the schema's code-shape type (use `a.codec` to decode into a class instance). `TDecoded` is what a deprecated custom `parse` produces; it defaults to `TParams`.
 
 **Constructor Options (`ToolInput`):**
 - `name: string` - Unique identifier (shown to the AI model)
 - `description: string` - What the tool does (shown to the AI model)
 - `instructions?: string` - Handlebars template for usage instructions
-- `schema: ZodType<TParams> | ((ctx: Context<TContext, TMetadata>) => ZodType<TParams> | undefined)` - Input parameter schema
+- `schema: Bindable<TParams, [ctx]>` - Argument schema: an `a` schema, or a bundle whose dynamic step takes the ctx (use `applicable` for "not available here")
+- `errorFormat?: ErrorFormatInput` - How bad arguments are told to the model
 - `strict?: boolean | number` - Strict input schema: `true` requires, `false` disables, a number is a preference priority (default: `1`)
 - `format?: ToolTextFormat` - Take free text (`{ type: 'text' }`) or grammar-constrained text (`{ type: 'grammar', syntax: 'lark' | 'regex', definition }`) as `input` instead of JSON; use `TEXT_TOOL_SCHEMA` as the schema. Providers without free-text tools send a one-field function whose description `describeTool(definition)` builds, with the grammar appended
 - `defer?: boolean` - Load only when the model searches for it (OpenAI tool search)
@@ -713,7 +646,7 @@ interface Request {
   stop?: string | string[];
   tools?: ToolDefinition[];
   toolChoice?: 'auto' | 'required' | 'none' | { tool: string } | { allowed: string[]; required?: boolean };
-  responseFormat?: 'text' | 'json' | { type: ZodType; strict: boolean | number };
+  responseFormat?: 'text' | 'json' | { type: Bound; strict: boolean | number; schemaDelivery?; errorFormat? };
   reason?: { effort?: ReasoningEffort; maxTokens?: number; summary?: 'auto' | 'concise' | 'detailed'; exclude?: boolean };
   frequencyPenalty?: number;
   presencePenalty?: number;
@@ -725,7 +658,7 @@ interface Request {
 ## Best Practices
 
 1. **Type Safety** - Use TypeScript generics for context and metadata
-2. **Schema Validation** - Use Zod for robust input/output validation
+2. **Schemas** - Build `a` schemas once at module scope; put what varies in a keyed dynamic step
 3. **Token Management** - Supply `estimateUsage` for accurate context trimming
 4. **Tool Organization** - Group related tools and use agents to orchestrate them
 5. **Testing** - Unit test tools and prompts independently
@@ -748,8 +681,7 @@ See the `src/__tests__` directory for comprehensive examples:
 Full type inference across component hierarchies:
 
 ```typescript
-import { Prompt, Tool } from '@aeye/core';
-import z from 'zod';
+import { a, Prompt, Tool } from '@aeye/core';
 
 // Output type is inferred from the schema
 const prompt = new Prompt({
@@ -757,7 +689,7 @@ const prompt = new Prompt({
   description: 'Example prompt',
   content: 'Say hello to {{name}}.',
   input: (input: { name: string }) => ({ name: input.name }),
-  schema: z.object({ greeting: z.string() }),
+  schema: a.object({ greeting: a.string() }),
 });
 
 // result is typed as { greeting: string } | undefined
@@ -768,7 +700,7 @@ console.log(result?.greeting);
 const mathTool = new Tool({
   name: 'add',
   description: 'Adds two numbers',
-  schema: z.object({ a: z.number(), b: z.number() }),
+  schema: a.object({ a: a.number(), b: a.number() }),
   call: (input, _refs, _ctx) => {
     // input is typed as { a: number; b: number }
     return input.a + input.b;

@@ -5,7 +5,7 @@
  * Provides type-safe, scoped access to AI capabilities with hooks and context injection.
  */
 
-import { accumulateUsage, Agent, Events, Extend, Fn, FnResolved, MessageContentType, Prompt, resolveFn, RetoolResult, Tool, ToolCompatible, Tuple } from '@aeye/core';
+import { accumulateUsage, Agent, Events, Extend, Fn, FnResolved, mapSchemaArgs, MessageContentType, Prompt, resolveFn, RetoolResult, Tool, ToolCompatible, Tuple } from '@aeye/core';
 import { BatchAPI } from './apis/batch';
 import { ChatAPI } from './apis/chat';
 import { EmbedAPI } from './apis/embed';
@@ -776,12 +776,16 @@ export class AI<T extends AIBaseTypes> {
       TDecoded
     >({
       ...rest,
-      input: hydrateFn(input, (r) => (async (input, ctxPartial) => {
-        return r(input, await getContext(ctxPartial));
+      input: hydrateFn(input, (r) => (async (input, ctxPartial, encode) => {
+        return r(input, await getContext(ctxPartial), encode);
       })),
-      schema: hydrateFn(schema, (r) => (async (input, ctxPartial) => {
-        return r(input, await getContext(ctxPartial));
-      })),
+      // The schema's dynamic step gets the full context (`(ctx, input)`; a
+      // bridged zod function its old `(input, ctx)`).
+      schema: schema === undefined ? undefined : mapSchemaArgs(
+        schema,
+        async (ctxPartial: AIContextRequired<T>, promptInput: TInput) => [await getContext(ctxPartial), promptInput] as [AIContext<T>, TInput],
+        (ctx, promptInput) => [promptInput, ctx],
+      ) as any,
       config: hydrateFn(config, (r) => (async (input ,ctxPartial) => {
         return r(input, await getContext(ctxPartial));
       })),
@@ -876,8 +880,8 @@ export class AI<T extends AIBaseTypes> {
       TDecoded
     >({
       ...rest,
-      instructionsFn: hydrateFn(rest.instructionsFn, (r) => (async (ctxPartial) => {
-        return r(await getContext(ctxPartial));
+      instructionsFn: hydrateFn(rest.instructionsFn, (r) => (async (ctxPartial, encode) => {
+        return r(await getContext(ctxPartial), encode);
       })),
       descriptionFn: hydrateFn(rest.descriptionFn, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
@@ -885,12 +889,11 @@ export class AI<T extends AIBaseTypes> {
       metadataFn: hydrateFn(rest.metadataFn, (r) => (async (params, ctxPartial) => {
         return r(params, await getContext(ctxPartial));
       })),
-      input: hydrateFn(input, (r) => (async (ctxPartial) => {
-        return r(await getContext(ctxPartial));
+      input: hydrateFn(input, (r) => (async (ctxPartial, encode) => {
+        return r(await getContext(ctxPartial), encode);
       })),
-      schema: hydrateFn(schema, (r) => (async (ctxPartial) => {
-        return r(await getContext(ctxPartial));
-      })),
+      // The schema's dynamic step gets the full context.
+      schema: mapSchemaArgs(schema, async (ctxPartial: AIContextRequired<T>) => [await getContext(ctxPartial)] as [AIContext<T>]) as any,
       call: hydrateFn(call, (r) => async (params, refs, ctxPartial) => {
         return r(params, refs, await getContext(ctxPartial));
       }),

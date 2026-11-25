@@ -298,12 +298,18 @@ describe('structured output that can\'t be expressed (core:can-express.test.ts)'
     expect(profileProblems(S.Plain, [{ name: 'n', age: 1, tags: [], meta: { active: true } }])).toEqual([]);
   });
 
-  it.fails('GAP: Claude output with strict: false is sent as non-strict structured output, which Claude does not have', () => {
+  it('(was GAP, closed in the core integration) Claude output with strict: false goes as prompt text, Claude having no non-strict structured output', () => {
     // core:can-express.test.ts:177 — allocateOutput(…, false) under ANTHROPIC_STRICT kept the strict dialect
-    // (structuredOutputAlwaysStrict). Here the entry is `structured` + not strict, i.e. a schema Claude still
-    // compiles strictly — it should be strict, or go as prompt text.
+    // (structuredOutputAlwaysStrict). Claude compiles every structured output strictly, so a schema that is
+    // not to be strict is delivered as prompt text (still decoded by the same schema); `delivery: 'structured'`
+    // insists on the wire.
     const e = claude.request([{ kind: 'output', schema: S.optionals(1), strict: false }]).get('output');
-    expect(e.delivery === 'prompt' || e.strict).toBe(true);
+    expect(e.delivery).toBe('prompt');
+    expect(e.strict).toBe(false);
+    expect(e.adjustments).toEqual([{ kind: 'prompt-text', reason: 'strict: false' }]);
+    expect(e.parse({ f0: 'x' })).toMatchObject({ ok: true, value: { f0: 'x' } });
+    const insisted = claude.request([{ kind: 'output', schema: S.optionals(1), strict: false, delivery: 'structured' }]).get('output');
+    expect(insisted.delivery).toBe('structured');
   });
 });
 

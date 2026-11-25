@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { getOperationInput } from '../operations/types';
 
@@ -17,10 +17,10 @@ Example: Find all TypeScript files in src directory:
 { "glob": "src/**/*.ts", "limit": 10 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      glob: z.string().describe('Glob pattern (e.g., "**/*.ts", "src/**/*.json")'),
-      limit: z.number().optional().describe('Maximum results (default: 50)'),
-      offset: z.number().optional().describe('Starting position for results (default: 0)'),
+    schema: a.object({
+      glob: a.string().describe('Glob pattern (e.g., "**/*.ts", "src/**/*.json")'),
+      limit: a.number().optional().describe('Maximum results (default: 50)'),
+      offset: a.number().optional().describe('Starting position for results (default: 0)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_search'),
@@ -36,14 +36,14 @@ Example: Summarize a PDF document:
 { "path": "docs/report.pdf", "characterLimit": 32000 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative file path'),
-      limit: z.number().optional().describe('Maximum summary length in characters/lines (default: 64,000 chars or 1000 lines - whatever is smaller)'),
-      offset: z.number().optional().describe('Character offset to start summary from (default: 0). This can be a negative number meaning it will start from the end of the file.'),
-      limitOffsetMode: z.enum(['characters', 'lines']).optional().describe('Whether limit & offset are in characters or lines (default: "characters")'),
-      describeImages: z.boolean().optional().describe('Generate descriptions for images (default: false)'),
-      extractImages: z.boolean().optional().describe('Extract images from documents (default: false)'),
-      transcribeImages: z.boolean().optional().describe('OCR text from images (default: false)'),
+    schema: a.object({
+      path: a.string().describe('Relative file path'),
+      limit: a.number().optional().describe('Maximum summary length in characters/lines (default: 64,000 chars or 1000 lines - whatever is smaller)'),
+      offset: a.number().optional().describe('Character offset to start summary from (default: 0). This can be a negative number meaning it will start from the end of the file.'),
+      limitOffsetMode: a.enum(['characters', 'lines']).optional().describe('Whether limit & offset are in characters or lines (default: "characters")'),
+      describeImages: a.boolean().optional().describe('Generate descriptions for images (default: false)'),
+      extractImages: a.boolean().optional().describe('Extract images from documents (default: false)'),
+      transcribeImages: a.boolean().optional().describe('OCR text from images (default: false)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_summary'),
@@ -89,12 +89,12 @@ Example 2: Index images with descriptions:
 { "glob": "images/**/*.jpg", "index": "summary", "describeImages": true }
 
 {{modeInstructions}}`,
-    schema: z.object({
-      glob: z.string().describe('Glob pattern for files to index'),
-      index: z.enum(['content', 'summary']).describe('Index mode: "content" embeds full text in chunks, "summary" embeds AI summary'),
-      describeImages: z.boolean().optional().describe('Generate descriptions for images (default: false)'),
-      extractImages: z.boolean().optional().describe('Extract images from documents (default: false)'),
-      transcribeImages: z.boolean().optional().describe('OCR text from images (default: false)'),
+    schema: a.object({
+      glob: a.string().describe('Glob pattern for files to index'),
+      index: a.enum(['content', 'summary']).describe('Index mode: "content" embeds full text in chunks, "summary" embeds AI summary'),
+      describeImages: a.boolean().optional().describe('Generate descriptions for images (default: false)'),
+      extractImages: a.boolean().optional().describe('Extract images from documents (default: false)'),
+      transcribeImages: a.boolean().optional().describe('OCR text from images (default: false)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_index'),
@@ -110,9 +110,9 @@ Example: Create a new configuration file:
 { "path": "config/settings.json", "content": "{\\"theme\\": \\"dark\\", \\"fontSize\\": 14}" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative file path'),
-      content: z.string().describe('File content'),
+    schema: a.object({
+      path: a.string().describe('Relative file path'),
+      content: a.string().describe('File content'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_create'),
@@ -128,9 +128,9 @@ Example: Copy all config files to backup directory:
 { "glob": "config/*.json", "target": "backup/config/" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      glob: z.string().describe('Glob pattern for files to copy'),
-      target: z.string().describe('Destination file path or directory'),
+    schema: a.object({
+      glob: a.string().describe('Glob pattern for files to copy'),
+      target: a.string().describe('Destination file path or directory'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_copy'),
@@ -149,9 +149,9 @@ Example 2: Move multiple files into a directory:
 { "glob": "temp/*.log", "target": "archive/" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      glob: z.string().describe('Glob pattern for files to move'),
-      target: z.string().describe('Destination directory or file'),
+    schema: a.object({
+      glob: a.string().describe('Glob pattern for files to move'),
+      target: a.string().describe('Destination directory or file'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_move'),
@@ -175,8 +175,8 @@ Example: Get stats for a source file:
 { "path": "src/index.ts" }
 
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative file path'),
+    schema: a.object({
+      path: a.string().describe('Relative file path'),
       ...globalToolProperties,
     }),
     metadata: { defaultVisible: true },
@@ -193,8 +193,8 @@ Example: Delete a temporary file:
 { "path": "temp/cache.tmp" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative file path'),
+    schema: a.object({
+      path: a.string().describe('Relative file path'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_delete'),
@@ -219,15 +219,15 @@ Example: Read a source file:
 { "path": "src/main.ts" }
 
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative file path'),
-      limit: z.number().optional().describe('Maximum summary length in characters/lines (default: 64,000 chars or 1000 lines - whatever is smaller)'),
-      offset: z.number().optional().describe('Character offset to start reading from (default: 0). This can be a negative number meaning it will start from the end of the file.'),
-      limitOffsetMode: z.enum(['characters', 'lines']).default('characters').describe('Whether limit & offset are in characters or lines (default: "characters")'),
-      showLines: z.boolean().optional().describe('Include line numbers in output (default: false)'),
-      describeImages: z.boolean().optional().describe('Generate descriptions for images (default: false)'),
-      extractImages: z.boolean().optional().describe('Extract images from documents (default: false)'),
-      transcribeImages: z.boolean().optional().describe('OCR text from images (default: false)'),
+    schema: a.object({
+      path: a.string().describe('Relative file path'),
+      limit: a.number().optional().describe('Maximum summary length in characters/lines (default: 64,000 chars or 1000 lines - whatever is smaller)'),
+      offset: a.number().optional().describe('Character offset to start reading from (default: 0). This can be a negative number meaning it will start from the end of the file.'),
+      limitOffsetMode: a.enum(['characters', 'lines']).default('characters').describe('Whether limit & offset are in characters or lines (default: "characters")'),
+      showLines: a.boolean().optional().describe('Include line numbers in output (default: false)'),
+      describeImages: a.boolean().optional().describe('Generate descriptions for images (default: false)'),
+      extractImages: a.boolean().optional().describe('Extract images from documents (default: false)'),
+      transcribeImages: a.boolean().optional().describe('OCR text from images (default: false)'),
       ...globalToolProperties,
     }),
     
@@ -249,11 +249,11 @@ Example 2: Edit a specific section of a large file (by line numbers):
 { "path": "src/utils.ts", "request": "Refactor the parseDate function to handle ISO 8601 format", "offset": 100, "limit": 50 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative file path to edit'),
-      request: z.string().describe('Detailed request describing the changes to make. Be precise with rules and requirements.'),
-      offset: z.number().optional().describe('Line offset to start editing from (default: 0). Negative numbers start from the end.'),
-      limit: z.number().optional().describe('Maximum lines to edit (default: 1000 lines)'),
+    schema: a.object({
+      path: a.string().describe('Relative file path to edit'),
+      request: a.string().describe('Detailed request describing the changes to make. Be precise with rules and requirements.'),
+      offset: a.number().optional().describe('Line offset to start editing from (default: 0). Negative numbers start from the end.'),
+      limit: a.number().optional().describe('Maximum lines to edit (default: 1000 lines)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_edit'),
@@ -281,15 +281,15 @@ Example: Find all function declarations in TypeScript files:
 { "glob": "src/**/*.ts", "regex": "function \\w+\\(", "caseInsensitive": true, "output": "matches", "surrounding": 2 }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      glob: z.string().describe('Glob pattern for files to search'),
-      regex: z.string().describe('Regular expression pattern, EMCA syntax'),
-      caseInsensitive: z.boolean().optional().describe('Case insensitive search (default: true)'),
-      output: z.enum(['file-count', 'files', 'match-count', 'matches']).optional().describe('Output format (default: "matches")'),
-      surrounding: z.number().optional().describe('Lines of context around match (default: 0)'),
-      transcribeImages: z.boolean().optional().describe('OCR text from images before searching (default: false). This may be slow and costly so the user should be prompted for permission if not done so yet.'),
-      offset: z.number().optional().describe('Starting position for results (default: 0)'),
-      limit: z.number().optional().describe('Maximum results (default: 0 = unlimited)'),
+    schema: a.object({
+      glob: a.string().describe('Glob pattern for files to search'),
+      regex: a.string().describe('Regular expression pattern, EMCA syntax'),
+      caseInsensitive: a.boolean().optional().describe('Case insensitive search (default: true)'),
+      output: a.enum(['file-count', 'files', 'match-count', 'matches']).optional().describe('Output format (default: "matches")'),
+      surrounding: a.number().optional().describe('Lines of context around match (default: 0)'),
+      transcribeImages: a.boolean().optional().describe('OCR text from images before searching (default: false). This may be slow and costly so the user should be prompted for permission if not done so yet.'),
+      offset: a.number().optional().describe('Starting position for results (default: 0)'),
+      limit: a.number().optional().describe('Maximum results (default: 0 = unlimited)'),
       ...globalToolProperties,
     }),
     validate: (input) => {
@@ -312,8 +312,8 @@ Example: Create a new feature directory:
 { "path": "src/features/auth" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative directory path'),
+    schema: a.object({
+      path: a.string().describe('Relative directory path'),
       ...globalToolProperties,
     }),
     input: getOperationInput('dir_create'),
@@ -339,10 +339,10 @@ Example 4: Get extension counts:
 { "path": ".", "kind": "ext" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().optional().describe('Relative directory path (defaults to CWD)'),
-      kind: z.enum(['files', 'dirs', 'ext', 'all']).optional().describe('Type of summary: files, dirs, ext (extensions), or all (default: all)'),
-      depth: z.number().optional().describe('Maximum depth to traverse (default: 10)'),
+    schema: a.object({
+      path: a.string().optional().describe('Relative directory path (defaults to CWD)'),
+      kind: a.enum(['files', 'dirs', 'ext', 'all']).optional().describe('Type of summary: files, dirs, ext (extensions), or all (default: all)'),
+      depth: a.number().optional().describe('Maximum depth to traverse (default: 10)'),
       ...globalToolProperties,
     }),
     input: getOperationInput('dir_summary'),
@@ -358,8 +358,8 @@ Example: Attach a document:
 { "path": "documents/report.pdf" }
  
 {{modeInstructions}}`,
-    schema: z.object({
-      path: z.string().describe('Relative path to the text, audio, or PDF file to attach'),
+    schema: a.object({
+      path: a.string().describe('Relative path to the text, audio, or PDF file to attach'),
       ...globalToolProperties,
     }),
     input: getOperationInput('file_attach'),
@@ -394,8 +394,8 @@ Example: Check disk usage:
 { "command": "df -h" }`}
 
 {{modeInstructions}}`,
-    schema: z.object({
-      command: z.string().describe('Shell command to execute'),
+    schema: a.object({
+      command: a.string().describe('Shell command to execute'),
       ...globalToolProperties,
     }),
     input: getOperationInput('shell'),

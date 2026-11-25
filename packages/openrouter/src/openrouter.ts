@@ -17,7 +17,7 @@
 
 import type { AIContextAny, BatchJob, EmbeddingInput, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, embeddingImageURL, INPUT_CAPABILITIES, isEmbeddingImage, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, replaysTo, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
+import { type Chunk, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, replaysTo, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
 import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, fromSystemOneAnswers, toSystemOneParams } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
@@ -330,12 +330,12 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    * which family the model belonged to. LENIENT encodes `z.any()` as a
    * self-referencing `$defs/Any`, which Gemini's function-calling grammar
    * compiler rejects with `400 INVALID_ARGUMENT` as soon as a tool call is
-   * forced. `applySchemaDeliveryFallback` never hid this because it resolves
-   * the family itself and only covers `response_format`, not tools — which is
+   * forced. (Before the @aeye/schema integration) the delivery fallback never hid this because it resolved
+   * the family itself and only covered `response_format`, not tools — which was
    * why structured output looked family-aware while tools were not.
    */
-  protected override supportedStrictFamilies: ReadonlySet<DescriptorFamily> =
-    new Set<DescriptorFamily>(['openai', 'anthropic', 'google', 'xai']);
+  protected override supportedStrictFamilies: ReadonlySet<string> =
+    new Set<string>(['openai', 'anthropic', 'google', 'xai']);
 
   // Reasoning of each converted assistant message, re-attached when the
   // messages are assembled

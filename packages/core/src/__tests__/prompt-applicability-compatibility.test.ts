@@ -4,7 +4,7 @@
  * Targeted tests to cover remaining uncovered lines in prompt.ts
  */
 
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context, ToolCall } from '../types';
@@ -12,12 +12,13 @@ import { createMockExecutor, createMockStreamer } from './mocks/executor.mock';
 
 describe('Prompt Final Coverage', () => {
   describe('Applicability', () => {
-    it('should check schema applicability', async () => {
+    it('should check applicable', async () => {
       const prompt = new Prompt({
         name: 'check-schema',
         description: 'Check schema',
         content: 'Test',
-        schema: () => false // Not applicable
+        schema: a.object({ value: a.string() }),
+        applicable: () => false // Not applicable
       });
 
       const applicable = await prompt.applicable();
@@ -107,7 +108,7 @@ describe('Prompt Final Coverage', () => {
         name: 'test-tool',
         description: 'Test',
         instructions: 'Test',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -384,7 +385,7 @@ describe('Prompt Final Coverage', () => {
         name: 'skipper',
         description: 'Skipper',
         instructions: 'Skip',
-        schema: z.object({}),
+        schema: a.object({}),
         call: () => 'result'
       });
 
@@ -439,7 +440,7 @@ describe('Prompt Final Coverage', () => {
         name: 'par-tool-1',
         description: 'Parallel tool 1',
         instructions: 'First parallel tool',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: async (args) => {
           await new Promise(resolve => setTimeout(resolve, 10));
           return `result1: ${args.value}`;
@@ -450,7 +451,7 @@ describe('Prompt Final Coverage', () => {
         name: 'par-tool-2',
         description: 'Parallel tool 2',
         instructions: 'Second parallel tool',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: async (args) => {
           await new Promise(resolve => setTimeout(resolve, 10));
           return `result2: ${args.value}`;
@@ -506,7 +507,7 @@ describe('Prompt Final Coverage', () => {
         name: 'seq-tool-1',
         description: 'Sequential tool 1',
         instructions: 'First tool',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (args) => `result1: ${args.value}`
       });
 
@@ -514,7 +515,7 @@ describe('Prompt Final Coverage', () => {
         name: 'seq-tool-2',
         description: 'Sequential tool 2',
         instructions: 'Second tool',
-        schema: z.object({ value: z.number() }),
+        schema: a.object({ value: a.number() }),
         call: (args) => `result2: ${args.value}`
       });
 
@@ -570,7 +571,7 @@ describe('Prompt Final Coverage', () => {
         name: 'error-tool',
         description: 'Tool that throws',
         instructions: 'Throws an error',
-        schema: z.object({}),
+        schema: a.object({}),
         call: async () => {
           throw new Error('Tool execution failed!');
         }

@@ -1,10 +1,52 @@
-import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import { globalToolProperties, type CletusAI } from '../ai';
 import { formatName, pluralize } from '../common';
 import { AgentMode, ChatMode } from '../schemas';
 import { buildToolSelectionQuery, STATIC_TOOLSETS, toolRegistry } from '../tool-registry';
 import ABOUT_CONTENT from './ABOUT.md';
 import { ToolInterrupt } from '@aeye/core';
+
+const RetoolArgs = a.object({
+  toolset: a.enum(STATIC_TOOLSETS).nullable().describe('The toolset to switch to, or null to enable adaptive tool selection'),
+  ...globalToolProperties,
+});
+
+/** Chat modes, least to most permissive. */
+const CHAT_MODES: ChatMode[] = ['none', 'read', 'create', 'update', 'delete'];
+
+/**
+ * What the hypothetical tool can switch to from the chat's modes: every chat
+ * mode more restrictive than the current one, and plan mode from 'default'.
+ */
+function hypotheticalOptions(chat?: { mode?: ChatMode; agentMode?: AgentMode }): { modes: ChatMode[]; plan: boolean } {
+  const currentMode = chat?.mode || 'none';
+  return {
+    modes: CHAT_MODES.slice(0, CHAT_MODES.indexOf(currentMode)),
+    plan: (chat?.agentMode || 'default') === 'default',
+  };
+}
+
+type HypotheticalInput = { mode?: ChatMode; agentMode?: 'plan' };
+
+/**
+ * The hypothetical tool's arguments: only the switches available from the
+ * chat's current modes (bound per call; the tool isn't applicable when there
+ * are none).
+ */
+const HypotheticalArgs = a
+  .declare<{ Args: HypotheticalInput }>()
+  .dynamic((ctx: { chat?: { mode?: ChatMode; agentMode?: AgentMode } }) => {
+    const { modes, plan } = hypotheticalOptions(ctx.chat);
+    const mode = a.enum(modes as [ChatMode, ...ChatMode[]]).optional()
+      .describe('Switch to a more restrictive operation mode');
+    const agentMode = a.literal('plan').optional()
+      .describe('Switch to plan mode to see what would be done without executing');
+    const Args = (modes.length && plan ? a.object({ mode, agentMode, ...globalToolProperties })
+      : modes.length ? a.object({ mode, ...globalToolProperties })
+      : a.object({ agentMode, ...globalToolProperties })) as SchemaOf<HypotheticalInput>;
+    return { Args };
+  }, { key: (ctx) => `${ctx.chat?.mode || 'none'}|${ctx.chat?.agentMode || 'default'}` })
+  .result('Args');
 
 /**
  * Create utility tools for Cletus operations
@@ -15,9 +57,9 @@ export function createUtilityTools(ai: CletusAI) {
     name: 'getOperationOutput',
     description: 'Retrieves the full output of a truncated operation message',
     instructions: `Use this when you see a message indicating that operation output was truncated.`,
-    schema: z.object({
-      id: z.number().describe('The message ID provided in the truncation notice'),
-      operation: z.number().describe('The operation index within the message provided in the truncation notice'),
+    schema: a.object({
+      id: a.number().describe('The message ID provided in the truncation notice'),
+      operation: a.number().describe('The operation index within the message provided in the truncation notice'),
       ...globalToolProperties,
     }),
     metadata: { alwaysVisible: true },
@@ -63,7 +105,7 @@ export function createUtilityTools(ai: CletusAI) {
 - Who created Cletus
 - Project background and details
 - How to get started`,
-    schema: z.object({
+    schema: a.object({
       ...globalToolProperties,
     }),
     metadata: { alwaysVisible: true },
@@ -107,14 +149,7 @@ Example 2: Focus on file operations:
 Example 3: Focus on data operations:
 { "toolset": "dba" }`;
     },
-    schema: () => {
-      const allToolsets = [...STATIC_TOOLSETS] as [string, ...string[]];
-
-      return z.object({
-        toolset: z.enum(allToolsets).nullable().describe('The toolset to switch to, or null to enable adaptive tool selection'),
-        ...globalToolProperties,
-      });
-    },
+    schema: RetoolArgs,
     call: async ({ toolset }, _, ctx) => {
       const previousToolset = ctx.chat?.toolset;
       
@@ -183,46 +218,12 @@ Do NOT use this for normal requests where the user wants actual operations perfo
 </critical>
 
 After using this tool, inform the user they will need to manually change back to the previous mode using the /mode command when they're ready to actually perform operations.`,
-    schema: ({ chat }) => {
-      const currentMode = chat?.mode || 'none';
-      const currentAgentMode = chat?.agentMode || 'default';
-
-      // Define mode hierarchy (index = restrictiveness, lower index = more restrictive)
-      const chatModes: ChatMode[] = ['none', 'read', 'create', 'update', 'delete'];
-      const currentModeIndex = chatModes.indexOf(currentMode);
-
-      // Get available chat modes (all modes more restrictive than current)
-      const availableChatModes = chatModes.slice(0, currentModeIndex);
-
-      // For agent mode, can only go from 'default' to 'plan'
-      const canSwitchToPlanning = currentAgentMode === 'default';
-
-      // If no options available, return undefined to indicate tool shouldn't be available
-      if (availableChatModes.length === 0 && !canSwitchToPlanning) {
-        return undefined;
-      }
-
-      // Build schema with only available options
-      const schemaObj: any = {
-        ...globalToolProperties,
-      };
-
-      // Only include mode property if there are available chat modes
-      if (availableChatModes.length > 0) {
-        schemaObj.mode = z.enum(availableChatModes as [ChatMode, ...ChatMode[]]).optional()
-          .describe('Switch to a more restrictive operation mode');
-      }
-
-      // Only include agentMode property if can switch to planning
-      if (canSwitchToPlanning) {
-        schemaObj.agentMode = z.literal('plan' as const).optional()
-          .describe('Switch to plan mode to see what would be done without executing');
-      }
-
-      return z.object(schemaObj);
+    schema: HypotheticalArgs,
+    applicable: (ctx) => {
+      const { modes, plan } = hypotheticalOptions(ctx.chat);
+      return modes.length > 0 || plan;
     },
-    call: async (input: any, _, ctx) => {
-      const { mode, agentMode } = input as { mode?: ChatMode; agentMode?: AgentMode };
+    call: async ({ mode, agentMode }, _, ctx) => {
       const previousMode = ctx.chat?.mode || 'none';
       const previousAgentMode = ctx.chat?.agentMode || 'default';
 
@@ -339,16 +340,16 @@ The user's answers will be formatted and submitted as a message, triggering the 
 
 DO NOT use this tool for single, simple questions - only use it when you need to gather multiple pieces of information at once.
 DO NOT use this tool to ask for approval of operations - there is a separate mechanism for that.`,
-    schema: z.object({
-      questions: z.array(z.object({
-        name: z.string().describe('Short name for the question'),
-        min: z.number().describe('Minimum number of selections required'),
-        max: z.number().describe('Maximum number of selections allowed'),
-        custom: z.boolean().describe('Whether custom answers are allowed'),
-        customLabel: z.string().optional().describe('Label for custom answer option (defaults to "Custom")'),
-        options: z.array(z.object({
-          label: z.string().describe('Option label'),
-          description: z.string().describe('Option description'),
+    schema: a.object({
+      questions: a.array(a.object({
+        name: a.string().describe('Short name for the question'),
+        min: a.number().describe('Minimum number of selections required'),
+        max: a.number().describe('Maximum number of selections allowed'),
+        custom: a.boolean().describe('Whether custom answers are allowed'),
+        customLabel: a.string().optional().describe('Label for custom answer option (defaults to "Custom")'),
+        options: a.array(a.object({
+          label: a.string().describe('Option label'),
+          description: a.string().describe('Option description'),
         })).describe('Available options for this question'),
       })).min(1).describe('Array of questions to ask the user'),
       ...globalToolProperties,
