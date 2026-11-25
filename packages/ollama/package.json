@@ -1,6 +1,6 @@
 {
   "name": "@aeye/ollama",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "@aeye Ollama - local and cloud Ollama models for @aeye: chat, embeddings, and System One decisions",
   "type": "module",
   "main": "dist/index.js",
@@ -48,9 +48,9 @@
     "aeye-*.md"
   ],
   "dependencies": {
-    "@aeye/ai": "^0.9.0",
-    "@aeye/core": "^0.9.0",
-    "@aeye/openai": "^0.9.0",
+    "@aeye/ai": "^0.10.0",
+    "@aeye/core": "^0.10.0",
+    "@aeye/openai": "^0.10.0",
     "openai": "^7.45.1"
   },
   "devDependencies": {

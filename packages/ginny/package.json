@@ -1,6 +1,6 @@
 {
   "name": "@aeye/ginny",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Ginny — CLI that turns natural-language requests into executable gin programs",
   "type": "module",
   "main": "dist/index.js",
@@ -49,20 +49,20 @@
     "puppeteer": "^24.0.0"
   },
   "devDependencies": {
-    "@aeye/ai": "0.9.0",
-    "@aeye/aws": "0.9.0",
-    "@aeye/core": "0.9.0",
-    "@aeye/gin": "0.9.0",
-    "@aeye/models": "0.9.0",
-    "@aeye/openai": "0.9.0",
-    "@aeye/openrouter": "0.9.0",
+    "@aeye/ai": "0.10.0",
+    "@aeye/aws": "0.10.0",
+    "@aeye/core": "0.10.0",
+    "@aeye/gin": "0.10.0",
+    "@aeye/models": "0.10.0",
+    "@aeye/openai": "0.10.0",
+    "@aeye/openrouter": "0.10.0",
     "@types/node": "^24.9.1",
     "@types/pdf-parse": "^1.1.0",
     "esbuild": "^0.26.0",
     "rimraf": "^6.1.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "@aeye/schema": "0.9.0"
+    "@aeye/schema": "0.10.0"
   },
   "publishConfig": {
     "access": "public"
