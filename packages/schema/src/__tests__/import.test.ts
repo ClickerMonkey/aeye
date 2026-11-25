@@ -48,6 +48,14 @@ describe('fromJSONSchema', () => {
     expect(r.parse({ kind: 'ftp' }).ok).toBe(true);
   });
 
+  it('additionalProperties: true is an open object, with or without properties', () => {
+    const open = fromJSONSchema({ type: 'object', additionalProperties: true });
+    expect(open.render(LENIENT).parse({ q: 'x', n: 2 })).toMatchObject({ ok: true, value: { q: 'x', n: 2 } });
+    const withProps = fromJSONSchema({ type: 'object', properties: { name: { type: 'string' } }, additionalProperties: true });
+    expect(withProps.render(LENIENT).parse({ name: 'n', other: [1] })).toMatchObject({ ok: true, value: { name: 'n', other: [1] } });
+    expect(withProps.render(LENIENT).parse({ name: 1 }).ok).toBe(false);
+  });
+
   it('patternProperties and additionalProperties next to properties become extra keys', () => {
     const b = fromJSONSchema({
       type: 'object',

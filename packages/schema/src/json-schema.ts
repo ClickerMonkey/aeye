@@ -125,14 +125,16 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
         const required = new Set<string>(j.required ?? []);
         const ap = j.additionalProperties;
         const pp = j.patternProperties as Record<string, J> | undefined;
-        if (!Object.keys(props).length && !pp && ap !== undefined && ap !== false && ap !== true) return new RecordType(conv(ap));
+        // `additionalProperties: true` is an open object: any JSON under extra keys (`{}` as a schema means the same)
+        if (!Object.keys(props).length && !pp && ap !== undefined && ap !== false) return new RecordType(ap === true ? new AnyType() : conv(ap));
         const shape: Record<string, AnySchema> = {};
         for (const [k, p] of Object.entries(props)) shape[k] = required.has(k) ? conv(p) : new OptionalType(conv(p));
         // `required` may name keys `properties` doesn't describe.
         for (const k of required) if (!(k in shape)) shape[k] = new AnyType();
         let o: ObjectType<any, any> = new ObjectType(shape);
         if (pp) o = o.patterns(Object.fromEntries(Object.entries(pp).map(([p, v]) => [p, conv(v)])));
-        if (ap !== undefined && typeof ap === 'object') o = o.rest(conv(ap));
+        if (ap === true) o = o.rest(new AnyType());
+        else if (ap !== undefined && typeof ap === 'object') o = o.rest(conv(ap));
         return ap === false ? o.strict() : o;
       }
     }
