@@ -425,9 +425,9 @@ export const GinGrammar = GinGrammarStatic
   .dynamic((registry: Registry, overrides?: BuildSchemasOverrides) => grammarDefs(registry, overrides), { key: grammarKey, cacheSize: 8 });
 
 /** A TypeDef (`buildSchemas(r).Type`). */
-export const TypeDefSchema = GinGrammar.result('TypeDef');
+export const TypeDefSchema: Bundle<S.TypeDef, [Registry, BuildSchemasOverrides?]> = GinGrammar.result('TypeDef');
 /** A program (`buildSchemas(r).Expr`). */
-export const ExprSchema = GinGrammar.result('Expr');
+export const ExprSchema: Bundle<S.ExprDef, [Registry, BuildSchemasOverrides?]> = GinGrammar.result('Expr');
 
 /** `buildSchemas`' result: the grammar's two roots, bound for one registry. */
 export interface GinSchemas {

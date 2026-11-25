@@ -23,13 +23,14 @@
  * one without it is left out of the model's grammar (it can still be built
  * in code).
  */
-import { a, type AnySchema, type Bound, type SchemaOf } from '@aeye/schema';
+import { a, type AnySchema, type Bound, type Bundle, type SchemaOf } from '@aeye/schema';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Field } from '../field';
 import type { FunctionDef } from '../schema';
 import type {
   DeleteDef, ExprDef, InsertDef, JoinDef, JoinOnDef, QueryDef, SourceDef, UpdateDef, WriteValueDef, ExprKind,
+  CTEDef, ExprQueryDef, OrderDef, SelectDef, SelectFieldDef, SetOperationDef,
 } from '../schema';
 import type { RefDepth, ResolvedSchemaDepth, SelectedFunctions } from '../node';
 import {
@@ -610,27 +611,51 @@ export const QueryGrammar = a
   .dynamic((registry: Registry, options?: BuildSchemasOptions) => memoDefs(registry, options), { key: grammarKey, cacheSize: QUERY_BIND_CACHE_SIZE });
 
 /** A query (`buildSchemas(...).Query`). */
-export const QueryResult = QueryGrammar.result('Query');
+export const QueryResult: QueryBundle<QueryDef> = QueryGrammar.result('Query');
 /** An expression. */
-export const ExprResult = QueryGrammar.result('Expr');
+export const ExprResult: QueryBundle<ModelExprDef> = QueryGrammar.result('Expr');
+
+/** A result of `QueryGrammar`, bound with `(registry, options?)`. */
+export type QueryBundle<T> = Bundle<T, [Registry, BuildSchemasOptions?]>;
+
+/**
+ * The code types of `buildSchemas`' parts, written out: the inferred ones are too long to emit. The parts the module
+ * declares are checked; the rest are the model's subset of their def (narrower ExprDefs), typed as the def.
+ */
+export interface QueryResults {
+  readonly Type: QueryBundle<string>;
+  readonly Expr: QueryBundle<ModelExprDef>;
+  readonly Source: QueryBundle<SourceDef>;
+  readonly Join: QueryBundle<JoinDef>;
+  readonly Order: QueryBundle<OrderDef>;
+  readonly SelectField: QueryBundle<SelectFieldDef>;
+  readonly Select: QueryBundle<SelectDef>;
+  readonly Insert: QueryBundle<InsertDef>;
+  readonly Update: QueryBundle<UpdateDef>;
+  readonly Delete: QueryBundle<DeleteDef>;
+  readonly SetOperation: QueryBundle<SetOperationDef>;
+  readonly CTE: QueryBundle<CTEDef>;
+  readonly ExprQuery: QueryBundle<ExprQueryDef>;
+  readonly Query: QueryBundle<QueryDef>;
+}
 
 /** The bundles of `buildSchemas`, one per named result. */
-export const QUERY_RESULTS = {
+export const QUERY_RESULTS: QueryResults = {
   Type: QueryGrammar.result('TypeName'),
   Expr: ExprResult,
   Source: QueryGrammar.result('Source'),
-  Join: QueryGrammar.result('Join'),
-  Order: QueryGrammar.result('Order'),
-  SelectField: QueryGrammar.result('SelectField'),
-  Select: QueryGrammar.result('Query_select'),
+  Join: QueryGrammar.result('Join') as unknown as QueryBundle<JoinDef>,
+  Order: QueryGrammar.result('Order') as unknown as QueryBundle<OrderDef>,
+  SelectField: QueryGrammar.result('SelectField') as unknown as QueryBundle<SelectFieldDef>,
+  Select: QueryGrammar.result('Query_select') as unknown as QueryBundle<SelectDef>,
   Insert: QueryGrammar.result('Query_insert'),
   Update: QueryGrammar.result('Query_update'),
   Delete: QueryGrammar.result('Query_delete'),
-  SetOperation: QueryGrammar.result('Query_set-operation'),
-  CTE: QueryGrammar.result('Query_cte'),
-  ExprQuery: QueryGrammar.result('Query_expr'),
+  SetOperation: QueryGrammar.result('Query_set-operation') as unknown as QueryBundle<SetOperationDef>,
+  CTE: QueryGrammar.result('Query_cte') as unknown as QueryBundle<CTEDef>,
+  ExprQuery: QueryGrammar.result('Query_expr') as unknown as QueryBundle<ExprQueryDef>,
   Query: QueryResult,
-} as const;
+};
 
 /** `buildSchemas`' result: each part of the language, bound for one registry and options. */
 export type QuerySchemas = { readonly [K in keyof typeof QUERY_RESULTS]: Bound<(typeof QUERY_RESULTS)[K]['_out']> };
