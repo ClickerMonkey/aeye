@@ -107,13 +107,16 @@ describe('parseQueryTool / parseQueryRequest (standalone)', () => {
     }
   });
 
-  it('reports needs-structuring in string-fallback mode (max 0)', () => {
+  it('parses a structured def past the Type-count threshold (max 0): only a string is prose', () => {
     const fx = runtimeFixture();
-    // `max: 0` → too many Types → string schema → prose path even for a def.
+    // `max` picks the schema a model is shown; a def that never went through it
+    // still parses (a database with more tables than `max` had every def refused).
     const result = parseQueryTool(fx.engine, { query: validSelect }, { max: 0 });
-    expect(result).toBeInstanceOf(QueryToolError);
-    if (result instanceof QueryToolError) {
-      expect(result.problems.list.some((p) => p.code === 'query.needs-structuring')).toBe(true);
+    expect(result).not.toBeInstanceOf(QueryToolError);
+    const prose = parseQueryTool(fx.engine, { query: 'just prose' }, { max: 0 });
+    expect(prose).toBeInstanceOf(QueryToolError);
+    if (prose instanceof QueryToolError) {
+      expect(prose.problems.list.some((p) => p.code === 'query.needs-structuring')).toBe(true);
     }
   });
 

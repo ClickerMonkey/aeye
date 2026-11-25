@@ -97,7 +97,6 @@ const NEEDS_STRUCTURING = 'Received a prose query; it must be converted to a str
 /** The parse+validate pipeline for a value in the code shape (WITHOUT running the query). */
 function parseQueryInput(
   engine: QueryEngine,
-  useString: boolean,
   raw: unknown,
   reportOpts?: FormatProblemsOptions,
 ): { query: Query | null; problems: Problems; report: string } {
@@ -114,8 +113,11 @@ function parseQueryInput(
   }
   const queryValue = raw['query'];
 
-  // 2. String-fallback mode, or a prose `query`: it can't be made runnable here.
-  if (useString || typeof queryValue === 'string') {
+  // 2. A prose `query`: it can't be made runnable here. Only a STRING is prose:
+  // the Type-count threshold (`max`) picks the schema a model is SHOWN, and a
+  // structured def is parsed whatever the count (a database past `max` tables
+  // had every stored/generated def refused as prose).
+  if (typeof queryValue === 'string') {
     const problems = new Problems();
     problems.info('query.needs-structuring', NEEDS_STRUCTURING);
     return { query: null, problems, report: reportFor(queryValue, problems, reportOpts) };
@@ -138,16 +140,16 @@ function parseQueryInput(
  * shape: a CLI / file def, an integration harness), WITHOUT building a Tool:
  * the runnable `Query` (or `null`) with the accumulated `problems` and their
  * underlined `report`. A model's answer goes through `buildQueryTool` instead,
- * whose schema decodes the wire shape first.
+ * whose schema decodes the wire shape first. A string `query` is prose (it
+ * needs structuring); a structured one is parsed and checked whatever the
+ * Type count — `max` / `types` choose only what a model is shown.
  */
 export function parseQueryRequest(
   engine: QueryEngine,
   raw: unknown,
   options: BuildQueryToolOptions = {},
 ): { query: Query | null; problems: Problems; report: string } {
-  const types = options.types ?? engine.registry.typeList();
-  const useString = shouldUseStringSchema(types, options.max);
-  return parseQueryInput(engine, useString, raw, options.report);
+  return parseQueryInput(engine, raw, options.report);
 }
 
 /**
