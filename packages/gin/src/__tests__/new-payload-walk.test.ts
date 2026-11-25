@@ -54,7 +54,7 @@ describe('a `new` payload evaluates embedded Exprs at EVERY slot', () => {
       { xs: ['FILLED'] }],
     ['map<text,text> <- [ {key:<get>, value:<get>} ]',
       { kind: 'new', type: { name: 'map', generic: { K: { name: 'text' }, V: { name: 'text' } } }, value: [{ key: GET_V, value: GET_V }] } as ExprDef,
-      [{ key: 'FILLED', value: 'FILLED' }]],
+      { FILLED: 'FILLED' }],
     ['tuple<text,text> <- [ <get>, "lit" ]',
       { kind: 'new', type: { name: 'tuple', options: { elements: [{ name: 'text' }, { name: 'text' }] } }, value: [GET_V, 'lit'] } as ExprDef,
       ['FILLED', 'lit']],
@@ -135,7 +135,7 @@ describe('a PERMISSIVE element type no longer swallows the ExprDef as data', () 
       type: { name: 'map', generic: { K: { name: 'text' }, V: { name: 'any' } } },
       value: [{ key: 'tag', value: { kind: 'get', path: [{ prop: 'secret' }] } }],
     } as ExprDef, { secret: r.text().parse('sk-live-123') });
-    expect(v.encodeLogical()).toEqual([{ key: 'tag', value: 'sk-live-123' }]);
+    expect(v.encodeLogical()).toEqual({ tag: 'sk-live-123' });
   });
 });
 

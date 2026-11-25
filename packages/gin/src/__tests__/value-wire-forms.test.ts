@@ -60,9 +60,8 @@ describe('encodeLogical — the envelope-free form', () => {
     });
     expect(v.encodeLogical()).toEqual({
       tags: ['a', 'b'],
-      // `[{key, value}]` IS the map's logical JSON form, not an envelope —
-      // each half is now the bare value rather than a nested `{type,value}`.
-      scores: [{ key: 'x', value: 1 }],
+      // a text-keyed map's logical form is a record (`toA`'s code shape); envelopes keep pairs
+      scores: { x: 1 },
       pair: ['p', 2],
       when: '2026-08-16T00:00:00.000Z',
       maybe: [1, 2],
@@ -236,5 +235,18 @@ describe('the DEFAULT forms are byte-identical to what gin always emitted', () =
     expect(r.parseValue(v.toJSON()).encodeLogical()).toEqual({ base: 'b', added: 7 });
     expect(r.parseValue(v.toJSONRefs()).encodeLogical()).toEqual({ base: 'b', added: 7 });
     expect(r.parseValue(v.toJSONLogical()).encodeLogical()).toEqual({ base: 'b', added: 7 });
+  });
+});
+
+describe('a text-keyed map reads and writes the record form', () => {
+  it('parses an object of values by key, and pairs as before; encodes the logical form as that object', async () => {
+    const { createRegistry } = await import('../index');
+    const r = createRegistry();
+    const m = r.map(r.text(), r.num());
+    expect(m.parse({ a: 1, b: 2 }).encodeLogical()).toEqual({ a: 1, b: 2 });
+    expect(m.parse([{ key: 'a', value: 1 }]).encodeLogical()).toEqual({ a: 1 });
+    expect(() => m.parse({ a: 'x' })).toThrow();
+    // a map keyed by numbers keeps its pairs
+    expect(r.map(r.num(), r.text()).parse([{ key: 1, value: 'x' }]).encodeLogical()).toEqual([{ key: 1, value: 'x' }]);
   });
 });

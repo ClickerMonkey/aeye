@@ -27,6 +27,11 @@ function entrySlots(entry: unknown): [unknown, unknown] {
   return [e?.key, e?.value];
 }
 
+/** A plain JSON object (not a list, a Map or null). */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Map);
+}
+
 /**
  * MapType<K, V> — keyed collection with generic key/value types.
  *
@@ -88,7 +93,9 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     // pair, so a hand-built `Map` works too.
     const entries: unknown = json instanceof Map
       ? Array.from(json as Map<unknown, unknown>, ([k, v]) => (isRuntimeEntry(v) ? v : [k, v]))
-      : json;
+      // a text-keyed map is also read as an object of values by key: its
+      // logical JSON form and `toA`'s code shape (a record)
+      : this.textKeyed() && isPlainObject(json) ? Object.entries(json) : json;
     if (!Array.isArray(entries)) {
       throw new TypeError({
         path: [], code: 'map.invalid',
@@ -118,10 +125,19 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   }
 
   encodeAs(raw: Map<unknown, [Value<K>, Value<V>]>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    // the logical form of a text-keyed map is a record (`toA`'s code shape); envelopes keep pairs
+    if (opts.form === 'logical' && this.textKeyed()) {
+      return Object.fromEntries(Array.from(raw, ([, [kv, vv]]) => [String(encodeSlot(kv, opts, scope)), encodeSlot(vv, opts, scope)]));
+    }
     return Array.from(raw, ([, [kv, vv]]) => ({
       key: encodeSlot(kv, opts, scope),
       value: encodeSlot(vv, opts, scope),
     }));
+  }
+
+  /** Whether the keys are text (the map is a record in its logical form). */
+  textKeyed(): boolean {
+    return this.key.name === 'text';
   }
 
   create(): Map<unknown, [Value<K>, Value<V>]> {
