@@ -1,6 +1,7 @@
 /**
  * gin's grammar module (grammar.ts) — the `a` grammar models write types and
- * programs in. Checked against the deprecated zod grammar (`buildZodSchemas`,
+ * programs in. Checked against the zod grammar it replaced (frozen in
+ * packages/schema/bench/legacy-gin,
  * the same verdict on gin's own fixture programs and TypeDefs), on every
  * model profile, with real answers decoded and parsed by gin, errors for the
  * model at each detail level, binds cached, and ginny's tool set in requests
@@ -11,16 +12,19 @@ import { describe, expect, it } from 'vitest';
 import {
   a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT, PEOPLE, XAI_STRICT, formatIssues,
 } from '@aeye/schema';
-import { buildSchemas, buildZodSchemas, createRegistry, ExprSchema, GinGrammar, TypeDefSchema } from '../index';
+import { buildSchemas, createRegistry, ExprSchema, GinGrammar, TypeDefSchema } from '../index';
+// @ts-ignore -- the frozen zod baseline is plain JS-typed source (@ts-nocheck)
+import * as legacy from '../../../schema/bench/legacy-gin';
 import { clone, MODEL_PROFILES, profileProblems, unexplained, validate } from '../../../schema/src/__tests__/corpus/_check';
 import {
   BAD_PROGRAMS, everythingProgram, fixtureRegistry, lambdaProgram, loopProgram, personProgram, PROGRAMS, switchProgram, t, TYPEDEFS,
 } from '../../../schema/src/__tests__/corpus/gin-fixtures';
 
 const reg = fixtureRegistry(createRegistry);
-const zodOpts = buildZodSchemas(reg);
-const zodStrict = buildZodSchemas(reg, { newStrict: true });
-const zodRefs = buildZodSchemas(reg, { namedRefs: true });
+const legacyReg = fixtureRegistry(legacy.createRegistry);
+const zodOpts = legacy.buildSchemas(legacyReg);
+const zodStrict = legacy.buildSchemas(legacyReg, { newStrict: true });
+const zodRefs = legacy.buildSchemas(legacyReg, { namedRefs: true });
 const WriteArgs = GinGrammar.result(a.object({ program: a.ref('Expr') }));
 const EditType = GinGrammar.result(a.object({ name: a.string(), def: a.ref('TypeDef') }));
 
