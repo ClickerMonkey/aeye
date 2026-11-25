@@ -8,7 +8,8 @@ expression. A built query resolves to an output type, has typed bind params,
 can be cost-bounded, run in-memory, converted to SQL (base + Postgres),
 auto-paginated, and **drilled down** (aggregate un-ravelling).
 
-It is fully standalone (only depends on `zod`) and obsessively type-safe: no
+It depends on `@aeye/schema` (the model-facing grammar) and `zod` (its own
+value checks), and is obsessively type-safe: no
 `any`, no `unknown` in public APIs, no casts; every polymorphic node is a
 discriminated union so handling is exhaustively checkable.
 
@@ -1173,49 +1174,70 @@ gracefully (a constant, or the first argument unchanged) and never throws.
 
 ## The LLM loop
 
-The `llm/` surface turns the engine into an LLM tool:
+The `llm/` surface turns the engine into an LLM tool. The model-facing schema
+is **`@aeye/schema`**: one grammar module (`QueryGrammar`) bound per
+registry + options (cached), rendered for whichever model a request goes to,
+and decoding the model's answer back into the code shape in one pass.
 
 ```ts
 import { selectTypes, buildSchemas, querySchema, buildQueryTool } from '@aeye/query';
+import { OPENAI_STRICT } from '@aeye/schema';
 
 // 1. Narrow the schema to the Types a request needs (semantic ranking).
 const types = await selectTypes(engine, 'revenue by customer last month');
 
-// 2. Per-axis `depth` Zod schemas (see "Schema depth" below). `'paired'` locks
-//    every axis: Type-name positions are enum-locked, field refs are TYPE+FIELD
-//    pairs (an `order` source can't be paired with a `user`-only field),
-//    relation paths are rooted at a known Type, and function calls are typed.
-const schemas = buildSchemas(engine, { depth: 'paired', types });
+// 2. Each part of the language at a per-axis `depth` (see "Schema depth" below),
+//    as `@aeye/schema` binds. `'paired'` locks every axis: Type-name positions are
+//    enum-locked, field refs are TYPE+FIELD pairs, function calls are typed.
+const { Query, Expr } = buildSchemas(engine, { depth: 'paired', types });
+const sent = Query.render(OPENAI_STRICT).jsonSchema;          // what that model is sent
+const res = Query.render(OPENAI_STRICT).parse(modelAnswer);   // { ok: true, value: QueryDef } | { ok: false, message }
 
-// 3. Or get the tool-input schema, which falls back to a string description
-//    past `max` Types (shouldUseStringSchema). `depth` / `functions` thread
-//    straight through to `buildSchemas`.
+// 3. Or the tool-input schema, which falls back to a string description past
+//    `max` Types (shouldUseStringSchema). `depth` / `functions` thread through.
 const schema = querySchema(engine, { types, depth: 'paired' });
 
-// 4. A ready-wired `@aeye/core` `Tool` — drop it into any core / `@aeye/ai`
-//    agent's tool set. Its wire `schema` is the query schema; its custom `parse`
-//    REPLACES Zod (validate the envelope → build a runnable `Query` → run full
-//    engine validation), throwing a rich `QueryToolError` whose `.message` is a
-//    compiler-style report on failure. Its `call` RUNS the built query.
-//    `instructions` reflect the active depth + the selected functions.
-const tool = buildQueryTool(engine, { depth: 'paired' });
-const query = await tool.parse(ctx, JSON.stringify({ query: someQueryDef })); // built Query (throws QueryToolError on failure)
-const result = await tool.run(query, ctx);                                    // runs it → QueryResult
+// 4. A ready-wired `@aeye/core` `Tool`: its schema decodes the model's answer,
+//    then parses + validates it into a runnable `Query` (structural and semantic
+//    problems are told to the model in @aeye/schema's format: its own JSON with
+//    a marker under each mistake, "did you mean"); its `call` RUNS the query.
+const tool = buildQueryTool(engine, { depth: 'paired', errorFormat: 'full' });
+const query = await tool.parse(ctx, JSON.stringify({ query: someQueryDef })); // Query (throws SchemaParseError)
+const result = await tool.run(query, ctx);                                    // → QueryResult
 ```
 
-Because the custom `parse` bypasses Zod, the model sees the engine's concise
-`Problems` diagnostics (via `formatProblems`) instead of Zod's harder-to-follow
-messages; when the query is clean the decoded value is the built `Query` and the
-tool's `call` executes it.
+`parseQueryTool(engine, { query }, options)` runs the same structural + semantic
+pipeline on a value already in the code shape (a CLI, a file), returning the
+`Query` or a `QueryToolError` with a compiler-style `report`.
 
 **Self-describing the engine.** `describeEngine(engine, { types?, functions? })` composes one terse, promptable block a model can read to know everything it may use: every (supplied) Type, then `describeExprs` (the capability-gated `kind — INSTRUCTIONS` list of usable expr kinds — `semantic` / `array-op` / … appear only when an eligible Type/function exists; the core is never gated), then `describeFunctions` (`name(a, b?): output — instructions`, grouped by shape), then `describeDialects`. `describeType` / `describeField` always render a short `label` + long `description` — the dev's `TypeDef` / `FieldDef` values when set, else defaults GENERATED on demand from the meta-model (a Field from its FieldType + flags + nullability + relation cardinality; a Type from its name + field/relation/index summary). Read the pair with `fieldMeta(field)` / `typeMeta(type)`; the stored def is never mutated.
 
 See `examples/` for an end-to-end, runnable tour of all of the above.
 
+### Migrating from the zod schemas
+
+- `buildSchemas(engine, options)` returns `@aeye/schema` binds, not zod:
+  `schemas.Query.safeParse(v)` → `schemas.Query.render(profile).parse(v)`
+  (`ok` / `value` / `message`); `z.toJSONSchema(schemas.Query)` →
+  `schemas.Query.render(profileFor(model)).jsonSchema`. Hand `querySchema(...)`
+  (or `QueryGrammar.result(...).adapt((ctx) => [registry, options])`) to a core
+  `Tool` / `Prompt` directly.
+- `buildQueryTool`'s decoded value is the runnable `Query` (its schema is a
+  codec); there is no custom `parse` hook, and a bad call throws
+  `SchemaParseError` (was `QueryToolError`). `report` options apply to
+  `parseQueryTool` only; the model's message is set with `errorFormat`.
+- The zod grammar is gone: each expr's `static toSchema`, `exprDefSchema`,
+  `SchemaCache` / `enumOf` / `orFold` / `refSchema` / `functionExprSchema` /
+  `insertRowSchema` / `updateSetSchema` / `sorterSchema`, `withAid`,
+  `sharedIdRegistry`, `directedMessage`. A custom expr kind gives its branch
+  with `static toA(build)`.
+- Calling `buildSchemas` every turn is now a cache lookup; it no longer
+  grows the heap (~2 MB per call before).
+
 ## Schema depth
 
-`buildSchemas` / `querySchema` / `buildQueryTool` constrain the LLM-facing
-schema along **four independent axes**, each dialed by `depth`:
+`buildSchemas` / `querySchema` / `buildQueryTool` constrain the model-facing
+grammar along **five independent axes**, each dialed by `depth`:
 
 | axis        | levels (loose → tight)                       | constrains                               |
 | ----------- | -------------------------------------------- | ---------------------------------------- |
@@ -1223,6 +1245,7 @@ schema along **four independent axes**, each dialed by `depth`:
 | `typeNames` | `open` · `enum`                              | bare Type-name positions (`from`, `into`, …) |
 | `functions` | `open` · `names` · `typed`                   | function name + named-arg objects        |
 | `filters`   | `open` · `paired`                            | the `filters` clause `(field, op)` pairs |
+| `writes`    | `open` · `names` · `typed`                   | INSERT rows / UPDATE SET (free record, writable names, typed values) |
 
 Pass a full `SchemaDepth` object, a partial one (unset axes stay loose), or a
 preset string: `'open'` (every axis loose — free strings) and `'paired'` (every

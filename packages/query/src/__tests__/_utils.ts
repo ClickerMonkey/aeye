@@ -12,7 +12,7 @@ import type { Type } from '../type';
 import type { TypeDef, ExprDef } from '../schema';
 import type { SourceRecord } from '../runtime/row';
 import { arrayExecutor } from '../runtime/executor';
-import { LENIENT, type ParseResult, type Profile, type Rendered } from '@aeye/schema';
+import { LENIENT, type ParseResult, type Profile } from '@aeye/schema';
 import { buildSchemas, QueryGrammar, type BuildSchemasOptions } from '../llm/schemas';
 
 export const userTypeDef: TypeDef = {
@@ -132,17 +132,17 @@ export const cmp = (op: '=' | '<>' | '<' | '<=' | '>' | '>=' | 'like' | 'notLike
 
 /** Something `buildSchemas` / `querySchema` returns: renders per profile. */
 export interface Renderable {
-  render(profile: Profile): Rendered<unknown>;
+  render(profile: Profile): { parse(wire: unknown): ParseResult<unknown> };
 }
 
 /** Decode `value` (written in the code shape) through a schema on a profile (LENIENT: the code shape). */
-export function decode(schema: Renderable | { bind(): { render(profile: Profile): Rendered<unknown> } }, value: unknown, profile: Profile = LENIENT): ParseResult<unknown> {
+export function decode(schema: Renderable | { bind(): Renderable }, value: unknown, profile: Profile = LENIENT): ParseResult<unknown> {
   const bound = 'render' in schema ? schema : schema.bind();
   return bound.render(profile).parse(structuredClone(value));
 }
 
 /** Whether the schema accepts `value` (written in the code shape). */
-export function accepts(schema: Renderable | { bind(): { render(profile: Profile): Rendered<unknown> } }, value: unknown, profile: Profile = LENIENT): boolean {
+export function accepts(schema: Renderable | { bind(): Renderable }, value: unknown, profile: Profile = LENIENT): boolean {
   return decode(schema, value, profile).ok;
 }
 
@@ -153,7 +153,7 @@ export function exprAccepts(def: unknown, options: BuildSchemasOptions = {}): bo
   return accepts(buildSchemas(grammarFixture.engine, options).Expr, def);
 }
 /** Whether a named type of the query grammar (`Expr_excluded`, `Expr_sorter`, `Query_select`…) accepts `def`. */
-export function grammarAccepts(name: Parameters<typeof QueryGrammar.result>[0] & string, def: unknown, options: BuildSchemasOptions = {}): boolean {
+export function grammarAccepts(name: keyof typeof QueryGrammar.defs & string, def: unknown, options: BuildSchemasOptions = {}): boolean {
   grammarFixture ??= fixture();
-  return accepts(QueryGrammar.result(name).bind(grammarFixture.registry, options), def);
+  return accepts(QueryGrammar.result(name as never).bind(grammarFixture.registry, options) as Renderable, def);
 }

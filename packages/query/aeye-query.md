@@ -2,7 +2,7 @@
 
 **Purpose:** A JSON, LLM-authorable relational query language with an in-memory runtime and a SQL converter. You register *Types* (table-like entities) made of *Fields*; from those an LLM (or a developer) builds a **typed, validated, runnable** query — a `select` / `insert` / `update` / `delete` / set-operation / CTE / single-expression statement. A built query resolves to an output type, has typed bind params, can be cost-bounded, run in-memory, emitted to SQL (base + Postgres), auto-paginated, and drilled down.
 
-It is standalone (only depends on `zod`) and exhaustively type-safe: every polymorphic node is a discriminated union, so handling is compiler-checkable with no `any`/casts.
+It depends on `@aeye/schema` (the model-facing grammar) and `zod` (its own value checks), and is exhaustively type-safe: every polymorphic node is a discriminated union, so handling is compiler-checkable with no `any`/casts.
 
 ## When to use it
 
@@ -13,7 +13,7 @@ It is standalone (only depends on `zod`) and exhaustively type-safe: every polym
 
 ## The query/expr JSON contract (state once)
 
-A query is a `QueryDef` and an expression is an `ExprDef` — plain JSON discriminated unions (keyed by `kind`) that round-trip through `JSON.stringify`. **The LLM does not hand-write these shapes from memory:** `buildSchemas` / `querySchema` generate a Zod schema the model emits against, and that schema is both **depth-graduated** (how tightly Type names / field refs / function args / filters are locked — see *Schema depth*) and **capability-gated** (expr kinds an available Type/function can't use are omitted). The doc below therefore describes *what is supported*; the schema tells the model *how to shape it*. `schema.ts` is the single source of truth for every `*Def`.
+A query is a `QueryDef` and an expression is an `ExprDef` — plain JSON discriminated unions (keyed by `kind`) that round-trip through `JSON.stringify`. **The LLM does not hand-write these shapes from memory:** `buildSchemas` / `querySchema` give the `@aeye/schema` grammar the model emits against (rendered per model, decoded back in one pass), and that grammar is both **depth-graduated** (how tightly Type names / field refs / function args / filters are locked — see *Schema depth*) and **capability-gated** (expr kinds an available Type/function can't use are omitted). The doc below therefore describes *what is supported*; the schema tells the model *how to shape it*. `schema.ts` is the single source of truth for every `*Def`.
 
 Developers compose the same trees ergonomically with the **`e.*` builder** (one builder per expr kind); each `e.*` returns a real `Expr` instance and `.toJSON()` is its wire `ExprDef`. `registry.parseExpr` is a pass-through for an already-built `Expr`, so built and parsed exprs compose freely.
 
@@ -398,7 +398,7 @@ A declarer cannot break the lattice by writing CODE — the library compiles the
 
 ## Schema depth & capability gating
 
-`buildSchemas` / `querySchema` / `buildQueryTool` constrain the LLM-facing schema along **four independent axes**, each dialed by `depth`:
+`buildSchemas` / `querySchema` / `buildQueryTool` constrain the model-facing grammar along **five independent axes**, each dialed by `depth`:
 
 | axis | levels (loose → tight) | constrains |
 | ---- | ---------------------- | ---------- |
@@ -406,6 +406,7 @@ A declarer cannot break the lattice by writing CODE — the library compiles the
 | `typeNames` | `open` · `enum` | bare Type-name positions (`from`, `into`, …) |
 | `functions` | `open` · `names` · `typed` | function name + named-arg objects |
 | `filters` | `open` · `paired` | the `filters` clause `(field, op)` pairs |
+| `writes` | `open` · `names` · `typed` | INSERT rows / UPDATE SET: a free record, the writable field names, or each field's typed value (`FieldType.toA()`) or an expression |
 
 Pass a full/partial `SchemaDepth` object, or a preset string: `'open'` (every axis loose) / `'paired'` (every axis tight); the deprecated `strict: true`/`false` are sugar for those. A `FunctionSelector` (`{ scalar: [...], … }`) picks which functions appear; `maxEnumSize` auto-degrades any axis whose enumeration overflows the budget one level looser so a large catalog never yields an unusable schema.
 
@@ -469,46 +470,57 @@ Bridges: `tableToGinType(table)` (the row's gin `obj`: `nullable<…>`, `enum` f
 
 ## The LLM tool
 
-The parse+validate pipeline is exposed **standalone**, so you can validate a query without building a `Tool` just to call `.parse` on it. All three entries share ONE implementation:
-
-- **`parseQueryTool(engine, raw, options?) → Query | QueryToolError`** — the DIRECT parse entry. Given the conceptual `{ query }` envelope, it validates the envelope, parses the structured `query` into a runnable `Query`, and runs full engine validation (structure + params + per-Type validators). Clean ⇒ the built `Query`; any problem ⇒ a rich `QueryToolError` whose `.report` (also its `.message`) is a concise compiler-style report (`formatProblems`), so the model sees real diagnostics instead of Zod's.
-- **`parseQueryRequest(engine, raw, options?) → { query, problems, report }`** — the same pipeline exposing the detailed result: the built `Query` (or `null`), the accumulated `Problems`, and the rendered `report`. (A SEMANTIC failure keeps the built `query` alongside its problems; a STRUCTURAL failure yields `query: null`.)
-- **`buildQueryTool(engine, options?) → Tool`** — the tool WRAPPER, built only when you need a runnable `@aeye/core` `Tool` to drop into an agent's tool set. Its wire `schema` is the engine's query schema (depth-graduated + capability-gated), its custom `parse` DELEGATES to `parseQueryTool` (Zod is demoted to the model-facing wire schema only), and its `call` handler RUNS the validated query and returns a `QueryResult`. Its `instructions` reflect the active depth + selected functions, and (past `max` Types via `shouldUseStringSchema`) it falls back to a prose-description schema.
-
-Because core wire-decodes the model's response **before** any custom `parse` hook runs (and a directly-parsed CLI/file def is already conceptual), the standalone functions operate on the **conceptual** value — they never need the wire schema for parsing.
+The model-facing schema is **`@aeye/schema`** (`a`), not zod: one static grammar module (`QueryGrammar`) whose registry-dependent part is bound per `(registry, version, options)` and cached, rendered per model on demand (records as pairs for OpenAI strict, JSON text where recursion isn't allowed, …), and decoding the model's answer back into the code shape in one pass.
 
 ```ts
-import { selectTypes, querySchema, parseQueryTool, parseQueryRequest, QueryToolError } from '@aeye/query';
+import { buildSchemas, querySchema, buildQueryTool, queryToolSchema, QueryGrammar } from '@aeye/query';
+import { OPENAI_STRICT } from '@aeye/schema';
 
-const types = await selectTypes(engine, 'revenue by customer last month'); // narrow the schema
+// Every part of the language, bound for this registry and these options (cached: calling it every turn is a lookup).
+const { Query, Expr, Select } = buildSchemas(engine, { strict: true, maxEnumSize: 100 });
+Query.render(OPENAI_STRICT).jsonSchema;            // what the model is sent
+const res = Query.render(OPENAI_STRICT).parse(wire); // { ok, value: QueryDef } | { ok: false, issues, message }
 
-// DIRECT parse — no Tool built. Feed a def straight through (CLI / file / your own loop):
-const parsed = parseQueryTool(engine, { query: someQueryDef }, { depth: 'paired', types });
-if (parsed instanceof QueryToolError) console.log(parsed.report);          // underlined diagnostics
-else console.log(await engine.run(parsed));                                // runnable Query → QueryResult
+// A tool's arguments: `{ query: <structured> }`, or `{ query: string }` past `max` Types.
+const args = querySchema(engine, { depth: 'paired', types });
 
-// Detailed result when you want the problems + report explicitly:
-const { query, problems, report } = parseQueryRequest(engine, { query: someQueryDef }, { types });
-
-// The model-facing schema for your own LLM loop (the model emits against it; core decodes with it):
-const schema = querySchema(engine, { depth: 'paired', types });
+// The ready-made tool: decodes into a runnable `Query`, runs it.
+const tool = buildQueryTool(engine, { depth: 'paired', types, errorFormat: 'full' });
 ```
 
-Build a `Tool` only when an agent must CALL and RUN it:
+- **`buildSchemas(engineOrRegistry, options?) → QuerySchemas`** — `{ Type, Expr, Source, Join, Order, SelectField, Select, Insert, Update, Delete, SetOperation, CTE, ExprQuery, Query }`, each a `Bound` (`render(profile)` → `jsonSchema`, `parse`, `encode`, …), bound lazily. The code type is query's own (`Query` decodes to `QueryDef`, `Expr` to `ModelExprDef` = `ExprDef` minus the position-only kinds).
+- **`QueryGrammar`** — the module itself, for your own results: `QueryGrammar.result('Query_select')`, `QueryGrammar.result(a.object({ query: a.ref('Query'), why: a.string() }))`, bound with `(registry, options?)`; hand one to a core `Tool` / `Prompt` with `.adapt((ctx) => [ctx.registry, options])`. `QUERY_RESULTS` holds the named results `buildSchemas` binds.
+- **`querySchema(engine, options?)`** — the tool arguments (`QueryArgs`, a bundle with no arguments left, or `QueryProseArgs` past `max`).
+- **`queryToolSchema(engine, options?) → Bindable<Query>`** — the arguments wrapped in a codec whose decode parses the `QueryDef` with the owned structural parser (`registry.parseCheckedQuery`) and runs the engine's semantic validation (`validateQuery`): a clean query decodes to the runnable `Query`; problems are a `Rejection` at their paths under `query`, so the model is told in @aeye/schema's format like any other schema error.
+- **`buildQueryTool(engine, options?) → Tool<…, Query, Promise<QueryResult>>`** — that schema as a core `Tool` whose `call` RUNS the query. No custom `parse` hook: `tool.parse(ctx, args, plan)` decodes through the request plan and throws a `SchemaParseError` whose `message` is what the model is told. Options: everything `buildSchemas` takes, `max` (string fallback), `name`, `description`, `runtime`, and `errorFormat` (the detail level / options of the model's message: `'summary'` · `'list'` · `'markers'` · `'full'`, default `'full'`, capped at 2000 characters).
+- **`parseQueryTool(engine, raw, options?) → Query | QueryToolError`** / **`parseQueryRequest(engine, raw, options?) → { query, problems, report }`** — the same structural + semantic pipeline for a value already in the code shape (a CLI, a file, a harness) without a tool or a model, reporting with `Code.formatProblems` (`report` options below).
 
-```ts
-import { buildQueryTool } from '@aeye/query';
+**What the model is told.** A structural mistake is caught by the schema (unknown kind, a misspelt enum value, a missing member, a wrong type), a semantic one by the codec (an unknown field at an open depth, a relation compared as a value, a param conflict) — both come back in the same format: the model's own JSON, trimmed to the paths that matter, a marker under each mistake, "did you mean" for misspelt names:
 
-const tool = buildQueryTool(engine, { depth: 'paired', types });
-const query = await tool.parse(ctx, JSON.stringify({ query: someQueryDef })); // delegates to parseQueryTool (throws QueryToolError on failure)
-const result = await tool.run(query, ctx);                                    // runs it → QueryResult
+```
+1 problem in the arguments of query:
+
+{
+  "query": {
+    "kind": "select",
+    "fields": [{"expr":{"kind":"field-ref","source":"product","field":"id"}}],
+    "from": {"kind":"type","type":"product"},
+    "where": [
+      {
+        "kind": "comparison",
+        "op": "notlike",
+              ^^^^^^^^^ query.where[0].op: Expected one of: =, <>, <, <=, >, >=, like, notLike, ilike — did you mean `notLike`?
 ```
 
-`buildSchemas` / `querySchema` expose the schema directly when you drive your own LLM loop.
+`errorFormat: 'summary'` sends one line per problem; `'list'` adds the paths; `'markers'` the echo without expected types.
 
-### Underlined, compiler-style problem reports
+**Caching and memory.** The dynamic step is memoized per registry (a `WeakMap`, so a dropped registry frees its grammar) and each result keeps `QUERY_BIND_CACHE_SIZE` (4) binds: a query bind rendered on 4 profiles keeps ~8.8 MB, so the cap holds ~35 MB per result in use. `Registry.version` bumps on every registration, so a registry that changed gets a fresh grammar. Nothing is kept per call (the zod path's process-global `sharedIdRegistry`, ~2 MB per `buildSchemas` call, is gone).
 
-`QueryToolError.report` renders every problem — STRUCTURAL (the owned, zod-free parser `registry.parseCheckedQuery`, now the ACTIVE gate) *and* SEMANTIC (`validateWalk`: unknown fields, param conflicts, per-Type validators) — as underlined diagnostics over the model's **own** query JSON, so it sees exactly which value to fix:
+**Extension.** A registered expr class that isn't a builtin kind contributes its branch through `static toA(build: QueryGrammarBuild)` (the build carries the Types offered, the resolved depth and functions, `build.ref(...)` / `build.fn(...)` for references and calls at the depth, `build.Expr` / `build.Query` for recursion); one without `toA` is left out of the model's grammar. A field type's model-facing value is `FieldType.toA()` (typed INSERT rows / UPDATE SET at `writes: 'typed'`); a refinement's declared zod `value` gate is checked on decode.
+
+### Compiler-style problem reports (`parseQueryTool`)
+
+`QueryToolError.report` renders every problem — STRUCTURAL (the owned, zod-free parser `registry.parseCheckedQuery`) *and* SEMANTIC (`validateWalk`: unknown fields, param conflicts, per-Type validators) — as underlined diagnostics over the query JSON:
 
 ```
 ── line 21 ──────────────────────────────────────────────
@@ -517,39 +529,17 @@ const result = await tool.run(query, ctx);                                    //
    │ error: expected an expression
 ```
 
-**Messages are aid-directed (domain-specific), not Zod-generic.** The owned parser's `Shape` combinators reuse the same `aids.ts` vocabulary (`aidInfo` for the label, `didYouMean` for suggestions) as the wire schema, so the structural diagnostics read in the query's own terms: `"left": "oops"` → "expected **an expression**, got a string"; `"args": "total"` → "expected **named arguments**, an object of { argName: <expr> }, got a string"; `"kind": "comparise"` → "unknown **expression kind** `comparise` — did you mean `comparison`?"; `"op": "equals"` → "expected a comparison operator: =, <>, <, <=, >, >=, like, notLike, ilike"; `"limit": "three"` → "expected a number or a param, got a string". **Structure vs semantics:** the owned parser accepts any REGISTERED kind with any string field (capability/depth is a wire-schema concern), so an unknown Type / field / function name is a SEMANTIC rejection instead — e.g. an unknown field surfaces from `validateWalk` as "Type 'user' (source 'user') has no field 'ghost'." (with its own `didYouMean`), still underlined at the offending field-ref.
+Messages are aid-directed: the owned parser's `Shape` combinators draw their labels from `AID_REGISTRY` (`aidInfo`) and their suggestions from `didYouMean` (`src/aids.ts`): `"left": "oops"` → "expected **an expression**, got a string"; `"kind": "comparise"` → "unknown **expression kind** `comparise` — did you mean `comparison`?"; an unknown field → "Type 'user' (source 'user') has no field 'ghost'." `parseQueryTool(engine, raw, { report })` forwards a `FormatProblemsOptions` (`{ contextLines?, sectionHeaders?, lineNumbers?, maxProblems? }`) into `formatProblems`.
 
-How it works: `jsonSource(value)` (in `src/json-source.ts`) re-emits the canonical `JSON.stringify(value, null, 2)` text while recording, for every node (root, each property value, each array element), the `[start, end)` char offsets keyed by the node's structural path (the same `(string | number)[]` shape as `Problem.path`). `Code.fromJson(value)` builds a `Code` over that text with those spans pre-registered, and `formatProblems` resolves each `Problem.path → span → (line, col)` to draw the `^^^` underline with surrounding context. The owned parser records each structural problem DIRECTLY at the offending value's path (`problems.at(key, …)`, accumulating, never throwing), so — unlike zod's `.or`-folded union failures — there is no nesting/noise to collapse: one problem per offending value, already at the right path.
+**"Did you mean?" on every unknown-name diagnostic.** `didYouMean(input, candidates, { max? })` appends "` — did you mean \`X\`?`" when a bad NAME is a typo of a valid one (case-insensitive edit distance under `suggestionBudget(len) = min(3, max(1, floor(len/3)))`), for fields, sources, Types, functions, named args and output names. (@aeye/schema's own suggester is the same algorithm.)
 
-Both the owned parser AND the wire schema draw their DIRECTED text from the SAME `aid → { label, noun? }` `AID_REGISTRY` in `src/aids.ts` (so the two never diverge): the owned parser's `Shape`s call `aidInfo` / `didYouMean` directly, while the wire schema uses **`withAid`** — every generated schema node is tagged with a stable `aid` (`.meta({ aid })`, unchanged — it also names the JSON-schema `$defs` entry) plus a per-schema, captured **error map** that renders domain text off `AID_REGISTRY`. On an `invalid_type` it reads `expected <label>[, got <received>]`; on an enum failure `expected <label>: <allowed values>`; on a union `.or` no-match either the union's `<label>` or, when the value carries a typo'd string `kind`, "unknown `<noun>` kind `x` — did you mean `y`? (available: …)". The wire schema the model consumes is unchanged except the added `aid` metadata and the friendlier error text (never serialized into JSON-schema). A problem whose path matches no node degrades gracefully (nearest ancestor, or a plain `<severity>: <message> @ <path>` line) rather than crashing. Valid queries produce no problems ⇒ an empty report.
+### Owned structural parser (zod-free, accumulating)
 
-**"Did you mean?" on EVERY unknown-name diagnostic.** A single reusable suggester — `didYouMean(input, candidates, { max? })` in `src/aids.ts` — appends "` — did you mean \`X\`?`" (or "`\`X\` or \`Y\`?`" up to `max`, default 1) whenever a bad NAME is a genuine typo of a valid one, and appends nothing otherwise. It is **typo-only**: a case-insensitive edit distance under a length-scaled budget (`suggestionBudget(len) = min(3, max(1, floor(len/3)))`, exposed alongside the lower-level `nearest(input, candidates, budget?)` primitive), so a short word tolerates one edit and a long one up to three — never a false match on an unrelated word. It powers, uniformly:
-- **schema-enum** failures — a near-miss `op` / `dir` / `nulls` / function-name / Type-name / field-name value gets the canonical spelling appended to `expected <label>: <allowed>` (e.g. `"op": "notlike"` → "… like, notLike, ilike — did you mean `notLike`?"), and the union-no-match `kind` suggestion (`nearestKind` now just calls `nearest`);
-- **validation** (`validateWalk`) unknown-name diagnostics — **field** (`ref` / `filters` / `semantic` / `text-search` / `text-score` / `excluded` / `insert` / `update`, suggested from the resolved Type's field names), **source** (suggested from the bound source names in scope, via the new `QueryScope.sources()` accessor — every source bound anywhere up the chain), **Type** (`insert` / `update` / `delete` / `source` / relation-target, from the registry's Type names), **function** (`function-call` / `aggregate` / `window` / `tabular`, from the registry's function names of that shape), **named-arg** (from the function's declared param names), and **output** (`output` ref, from the SELECT's output field names). Candidates are gathered only when the error is emitted, so there is no hot-path cost.
+`registry.parseCheckedQuery(def, problems)` / `parseCheckedExpr` / `parseCheckedSource` dispatch to each class's owned `static SHAPE` (`src/shape/`): never throwing, accumulating every problem in one pass, building a value `.toJSON()`-equal to `from(def)`. The query tool's codec and `parseQueryTool` both use it; through the tool it meets only what the schema already accepted. The combinators are on the public barrel as the namespace `shape` (`shape.obj({ kind: shape.lit('…'), … })`), so a class defined outside the package can own its `static SHAPE`.
 
-**Tuning the report.** `buildQueryTool(engine, { report })` forwards a `FormatProblemsOptions` (`{ contextLines?, sectionHeaders?, lineNumbers?, maxProblems? }`) straight into `formatProblems`, so a caller can shape the diagnostics the model sees. Absent ⇒ the defaults (`contextLines: 2`, section headers + the `N │` line-number gutter on). E.g. `{ contextLines: 0 }` drops the surrounding context (just the underlined line), `{ contextLines: 4 }` widens it, `{ lineNumbers: false }` drops the gutter, and `{ maxProblems: 3 }` caps how many problems render.
+### Compact schema (shared `$defs`)
 
-### Owned structural parser (zod-free, accumulating) — the ACTIVE gate
-
-A model-authored query is now gated by ONE structural authority, the owned parser: `parseQueryInput` (in `src/llm/tool.ts`) validates the `{ query }` envelope without zod, then calls `registry.parseCheckedQuery(queryDef, problems)` — the zod-free STRUCTURAL parse — and, only if it is structurally sound, runs the owned `validateWalk` SEMANTIC check. Both halves have the properties we want: they NEVER throw and ACCUMULATE every problem in one pass. **Zod is demoted to the model-facing WIRE schema only** — `buildQueryTool` still exposes `querySchema` / `buildSchemas` as the tool's `schema` (what the model emits against, and what `compile` / strict mode consume), but it is NO LONGER a validator: the `schema.safeParse` gate and its zod-issue flattening (`problemsFromZod` / `flattenZodIssues`) are gone. The **`src/shape/` combinator module** is the machinery that let each expr/query OWN its shape validation the same way it owns its semantics.
-
-A `Shape<T>` is a tiny structural schema: `check(json: unknown, ctx): T | INVALID`. It validates the untrusted `json` at the caller's current `Problems` path, RECORDS any problems (reusing `aids.ts` — `aidInfo` for the domain label, `didYouMean` for suggestions — never Zod, never `flattenZodIssues`), and returns the built value or the `INVALID` sentinel. It MUST NOT throw. Combinators: `lit` (a `kind` discriminant), `str` / `num` / `int` / `bool` / `scalar` (typeof / `Number.isInteger` guards → aid-directed `expected <label>, got <received>`), `enumOf` (membership → `expected <label>: a, b, c` + a `didYouMean` tail), `obj` / `optional` / `list` / `record` (composites — `record` is the named-argument map `{ [name]: value }`, returning an insertion-ordered `Map` to mirror `parseNamedArgs`), and the reference combinators `exprRef` / `queryRef` / `queryDefRef` / `sourceRef` (child-expr / child-query / raw-query-def / child-source slots, each defensively dispatched via the registry). **Accumulation, no throwing:** `obj` / `list` / `record` check ALL of their fields/elements before deciding — they never early-return on the first bad one — so a single `check` surfaces multiple problems in one pass (e.g. a `comparison` with a bad `op` AND a non-object `left` yields BOTH the `op` enum problem and the `left` not-object problem, each localized under its own path). Cross-field rules that a plain `obj` can't express (e.g. `logical`'s `not`-arity, or `in`'s list-vs-subquery dispatch) live in a thin hand-written `Shape` wrapper around the base `obj`.
-
-**The combinators are on the public barrel, as the namespace `shape`** — `import { shape, type Shape } from '@aeye/query'`, then `shape.obj({ kind: shape.lit('…'), … })`. A namespace rather than flat names because `lit` would otherwise shadow the expression BUILDER's `lit`. This is what a class defined outside the package needs to own its `static SHAPE`: before `0.6.6` such a class could satisfy `defineExpr` — validating, costing, emitting SQL and self-describing correctly — and still be refused by `parseCheckedExpr` with `shape.unknown-kind`, which is the gate a model-authored query goes through. Note the scope: this makes a `SHAPE` AUTHORABLE, it does not open `ExprKind` (`ExprDef['kind']` is a closed union — parse dispatch for a whole kind stays the library's).
-
-**Perfect type-safety, no casts.** The only `unknown` is the untrusted `json`, always narrowed by a type guard. `obj` is fully typed with NO `as`: rather than the usual `fields: Record<string, Shape<unknown>>` (whose indexed access erases each field's value type, forcing a cast in the assembler), the generic is INVERTED — `F` is the BUILT-VALUE record and the field map is the mapped type `{ [K in keyof F]: Shape<F[K]> }`, so `fields[key].check(...)` returns exactly `F[K] | INVALID`; the partial accumulator is promoted to the complete `F` for `build` by a user-defined completeness type GUARD (`acc is F`), not a cast.
-
-Three DEFENSIVE dispatches — the zod-free parallels to `parseExpr` / `parseQuery` / `QuerySource.from` — walk the whole tree: `Registry.parseCheckedExpr(json, problems)`, `Registry.parseCheckedQuery(json, problems)`, and `Registry.parseCheckedSource(json, problems)`. Each mirrors its throwing twin but records problems (`shape.not-object` / `shape.missing-kind` / `shape.unknown-kind` with a `didYouMean` over the real kinds) and returns the built `Expr` / `Query` / `QuerySource` or `undefined`, dispatching to each class's owned `static SHAPE` (query dispatch auto-includes every registered class that declares one; source dispatch reads `QuerySource.SHAPES`, keyed by the four source kinds). Each `SHAPE` builds a value `.toJSON()`-equal to the existing `from(def)` output on a valid def; the SEMANTIC checks (comparability, arg types, aggregate placement, source duplicates, write-model, unknown names) stay in `validateWalk`.
-
-The recursion is completed by four child-slot combinators alongside `exprRef`: **`queryRef`** (a parsed `Query` child — the set-operation arms, CTE bindings, subquery sources, `INSERT … SELECT`), **`queryDefRef`** (a subquery kept as a raw `QueryDef` — the value-position `subquery` / `exists` / `in`-subquery exprs re-parse it lazily, so it validates through `parseCheckedQuery` but returns the normalized `toJSON()` def), and **`sourceRef`** (a `QuerySource` child — a SELECT's `from`). The small building blocks are shared shapes in `queries/_shape.ts`: `selectFieldShape` (`{ expr, as? }`), `fieldValueShape` (`{ field, value }`), and `boundShape` (a limit/offset — a literal integer or a `{ kind:'param' }` def); `QueryOrder.SHAPE` and `QueryJoin.SHAPE` cover an ORDER BY term and a JOIN clause.
-
-**The whole query tree now parses through the owned parser.** Expr kinds with a `static SHAPE`: the C1 exemplars (`comparison`, `field-ref`, `literal`, `param`, `logical`) + the C2 operators/predicates/functions/refs (`binary`, `unary`, `is-null`, `between`, `case`, `aggregate`, `window`, `function-call`, `array-op`, `output`, `excluded`, `text-search`, `text-score`) + the C3 finishers: `subquery`, `exists`, `in` (BOTH forms — its `SHAPE` dispatches on `in`: an array → the list form, an object → the subquery form via `queryDefRef`), `semantic` (whose `query` shape dispatches over the string / `param` / `{source,field}` / `{type,field}` forms), `tabular-function-call`, and `filters`. Query kinds with a `static SHAPE`: `select`, `insert` (incl. `onConflict`), `update`, `delete`, `union` / `intersect` / `except` (three `lit(kind)`-anchored shapes over the shared `SetOperationQuery`), `cte` (its entry shape structurally discriminates the plain vs recursive binding), and `expr`. Source kinds: `type`, `aliased`, `subquery`, `function`. Cross-field rules a plain `obj` can't express (e.g. `logical`'s `not`-arity, `in`'s list-vs-subquery dispatch, `cte`'s entry discrimination) live in a thin hand-written `Shape` wrapper around the base `obj`. An end-to-end test parses a complex SELECT (joins + where + groupBy + having + subquery + aggregate) to a `Query` `.toJSON()`-equal to the throwing `parseQuery`, and a SELECT malformed across several clauses surfaces every problem in ONE pass.
-
-**This is the ACTIVE structural gate (C4 flipped).** `parseQueryInput` gates on `parseCheckedQuery` and feeds the sound result to `validateWalk`; the zod `safeParse` structural authority (and `problemsFromZod` / `flattenZodIssues`) has been retired. Zod remains ONLY the model-facing wire schema (`querySchema` / `buildSchemas`), unchanged. This is the intended structure-vs-semantics split: the owned parser accepts any registered kind + any string field, and unknown types / fields / functions are caught downstream by `validateWalk` with the existing aid-directed + `didYouMean` semantic messages.
-
-### Compact tool-call schema (shared `$defs`)
-
-The model-facing JSON-Schema (what `z.toJSONSchema` — and core's `compile()` — emit from `querySchema`) is **structurally factored**: the largest repeated fragments are built ONCE per schema-generation (a `SchemaCache` threaded on `SchemaOptions.cache`) and REUSED by identity everywhere they occur, so the converter emits each as a single `$def` + `$ref`s instead of inlining every copy. Factored fragments: each Type's **field-name enum** (`$def` `Fields_<Type>`, shared by field-ref / order / group-by / having / filters / text-search / semantic), the shared **`param`** expr, the reused **`Limit`** (number-or-param), and — the biggest win — the per-function **typed-args** blocks, keyed by argument SIGNATURE so the 100+ builtin functions (which collapse to a few dozen distinct signatures — dozens share a lone `value` arg) reuse one `$def` each. Names come from each shared fragment's `aid`, stamped as `meta.id` (`Fields_user`, `param`, `Limit`, `Args…`) so `z.toJSONSchema` factors AND names them; the ids are salted per schema-generation to stay unique in zod's process-global registry. This is a pure size/structure win — the schema accepts and rejects exactly the same queries with the same aid-directed diagnostics (a golden invariance test guards that), only smaller: on the bundled example fixture the minified `z.toJSONSchema` drops from **21.3 KB → 20.2 KB** (`open`) and **105.6 KB → 95.5 KB** (`paired`), the paired reduction concentrated in the field enums + typed-args (the ~100 genuinely-distinct per-function branches of `typed` mode are irreducible). A size-threshold test catches any regression that re-inlines the shared fragments.
+The largest repeated fragments are named types of the grammar, written once as `$defs`: each Type's field-name enum (`Fields_<Type>`), the shared `param` expr, `Limit` (number-or-param), and the typed-args objects, keyed by argument SIGNATURE (`Args`, `Args_2`, …) so the 100+ builtin functions share a few dozen. On the bundled example fixture: `open` 16 KB (lenient) / 22 KB (OpenAI strict), `paired` 77 KB / 94 KB; a size test guards re-inlining.
 
 ## Self-describing the engine to a model
 

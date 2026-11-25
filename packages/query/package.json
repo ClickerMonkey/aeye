@@ -31,6 +31,8 @@
     "cli": "tsx examples/cli.ts",
     "integration": "tsx integration/run.ts",
     "integration:check": "tsx integration/run.ts --check",
+    "bench:schema": "node --expose-gc --import tsx scripts/schema-bench.ts",
+    "bench:leak": "node --expose-gc --import tsx scripts/schema-leak.ts",
     "clean": "rimraf dist"
   },
   "dependencies": {

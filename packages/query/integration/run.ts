@@ -27,7 +27,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { z } from 'zod';
+import { a, Rejection } from '@aeye/schema';
 
 import { AI, type Provider } from '@aeye/ai';
 import { Tool, ToolInterrupt } from '@aeye/core';
@@ -37,12 +37,12 @@ import { models, strictSupport } from '@aeye/models';
 import {
   parseQueryTool,
   QueryToolError,
-  querySchema,
+  QueryGrammar,
   describeEngine,
   type QueryEngine,
   type Query,
   type QueryDef,
-  type QueryToolInput,
+  type BuildSchemasOptions,
   type Type,
 } from '../src/index';
 
@@ -270,7 +270,6 @@ interface LogEntry {
 }
 
 /** The tool's wire schema, typed at the boundary as it validates it (see tool.ts). */
-type QuerySchema = z.ZodType<QueryToolInput>;
 
 /** The result of one model ask: the built query (or null after retries) plus the
  *  last compiler-style diagnostics for the log trail. */
@@ -387,11 +386,6 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   const depthEnv = process.env['QUERY_EVAL_DEPTH']?.trim();
   const depth: 'open' | 'paired' | undefined = depthEnv === 'paired' ? 'paired' : depthEnv === 'open' ? 'open' : undefined;
   const options = { max: types.length + 1, functions: 'all' as const, ...(depth ? { depth } : {}) };
-  // The prompt's `schema` — the model emits against it AND core `decodeWire`s
-  // the response with it BEFORE our `parse` hook runs (so `parse` sees the
-  // CONCEPTUAL value). No Tool is built: we parse directly with `parseQueryTool`.
-  // Same boundary cast the tool applies to its own wire schema (see tool.ts).
-  const wireSchema = querySchema(engine, options) as QuerySchema;
   // `describeEngine` now folds worked examples (per expr kind, function, and query
   // kind) in from the nodes' own `EXAMPLES` — one source of truth. Render ALL of
   // them for the eval (no `maxExamples` cap) so the model sees every worked
@@ -399,6 +393,23 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   const instructions = describeEngine(engine, { types, functions: 'all' });
 
   const mode = evalMode();
+
+  // The prompt's `schema`: the grammar at this depth (the model emits against it;
+  // @aeye/schema decodes the reply from its wire shape) decoded into a runnable
+  // `Query` by the STANDALONE query parser. Problems ⇒ a rejection the prompt
+  // re-prompts with (in @aeye/schema's format); the parser's `QueryToolError` is
+  // kept for the log, and a write-policy failure unlocks the reject tool.
+  const wireSchema = QueryGrammar.result(a.codec(a.object({ query: a.refOf<QueryDef>('Query') }), {
+    decode: (v): Query | Rejection => {
+      const r = parseQueryTool(engine, v, options);
+      if (!(r instanceof QueryToolError)) return r;
+      errRef.last = r;
+      // A genuine write-policy failure unlocks the reject tool for this ask.
+      if (r.problems.list.some((p) => /\.(type|field)-readonly$/.test(p.code))) policyRef.sawReadonly = true;
+      return new Rejection(r.problems.list.filter((p) => p.severity === 'error').map((p) => ({ path: ['query', ...p.path], message: p.message })));
+    },
+    encode: (q: Query) => ({ query: q.toJSON() }),
+  })).adapt(() => [engine.registry, options as BuildSchemasOptions] as const);
 
   // ONE prompt for EVERY delivery mode. The prompt's `schema` + `parse` hook is
   // the single source of truth for turning the model's reply into a `Query`:
@@ -431,8 +442,8 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     description: 'Decline the request: it targets data that cannot be written.',
     instructions:
       'Call `reject` ONLY AFTER you have attempted the write and it was refused because policy forbids it (a read-only / append-only error) — never because the JSON is hard to format, and NEVER substitute a read-only SELECT for a forbidden write. Pick the `reason`: `field-read-only` (setting a server-generated / read-only field, e.g. an `id`), `type-read-only` (writing a whole read-only Type), `append-only-no-delete` (deleting from an append-only Type), `immutable-field` (changing a field that can never change), `reference-data` (editing reference/lookup data).',
-    schema: z.object({
-      reason: z.enum(['field-read-only', 'type-read-only', 'append-only-no-delete', 'immutable-field', 'reference-data']),
+    schema: a.object({
+      reason: a.enum(['field-read-only', 'type-read-only', 'append-only-no-delete', 'immutable-field', 'reference-data']),
     }),
     call: (input: { reason: string }): string => {
       if (!policyRef.sawReadonly) {
@@ -449,7 +460,7 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     description: 'Build a structured query from a natural-language request',
     content: '{{instructions}}\n\n{{userPrompt}}',
     input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
-    schema: () => wireSchema,
+    schema: wireSchema,
     tools: [rejectTool] as const,
     // Optional extended-thinking, gated by `QUERY_EVAL_REASONING` (off by
     // default). OpenRouter maps `reason.effort` to each family's thinking API.
@@ -475,18 +486,6 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     // wire schema; `prompt` always delivers the schema as text. Core's `parse`
     // hook runs — and does the JSON extraction — in ALL three.
     schemaDelivery: mode,
-    // `parse` runs the STANDALONE query parser on the (already wire-decoded when a
-    // descriptor was pinned, CONCEPTUAL) value — no Tool needed. Clean ⇒ the built
-    // `Query`; problems ⇒ the `QueryToolError` whose report the prompt re-prompts.
-    parse: (raw: unknown): Query | QueryToolError => {
-      const r = parseQueryTool(engine, raw, options);
-      if (r instanceof QueryToolError) {
-        errRef.last = r;
-        // A genuine write-policy failure unlocks the reject tool for this ask.
-        if (r.problems.list.some((p) => /\.(type|field)-readonly$/.test(p.code))) policyRef.sawReadonly = true;
-      }
-      return r;
-    },
     metadata,
   });
 

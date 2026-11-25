@@ -18,7 +18,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 
 import { AI, type Provider } from '@aeye/ai';
 import { OpenRouterProvider } from '@aeye/openrouter';
@@ -78,7 +78,7 @@ export function createSqlAsker(apiKey: string, modelId: string, engine: QueryEng
     // A FLAT {sql} schema — no anyOf/$defs, so every provider accepts it (unlike
     // the recursive query schema); auto delivery still drops→prompt-text if a
     // dialect can't express even this.
-    schema: () => z.object({ sql: z.string() }),
+    schema: a.object({ sql: a.string() }),
     outputRetries: 3,
     strict: false,
     schemaDelivery: 'auto',

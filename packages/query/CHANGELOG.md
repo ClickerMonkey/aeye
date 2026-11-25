@@ -3,6 +3,36 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## Unreleased — the model-facing grammar is `@aeye/schema`
+
+`buildSchemas`, `querySchema` and `buildQueryTool` produce `@aeye/schema` (`a`) instead of zod
+(step 2 of the `@aeye/schema` integration; see `packages/schema/DESIGN.md`).
+
+- **`QueryGrammar`** (`llm/grammar.ts`): the query language as one `a` module — a static grammar
+  plus ONE dynamic step over the registry (depth axes, presets, `strict` sugar, `maxEnumSize`
+  ladders, function selectors, the capability gate, typed INSERT / SET rows), bound per
+  `(registry identity, Registry.version, options)` and cached (`QUERY_BIND_CACHE_SIZE` = 4 per
+  result). The JSON a model is sent is the same as the step-1 corpus port's, which was checked
+  value-for-value against the zod `buildSchemas`.
+- **`buildSchemas(engineOrRegistry, options) → QuerySchemas`**: each part (`Query`, `Expr`,
+  `Select`, …) is a `Bound` (`render(profile)` → `jsonSchema` / `parse` / `encode`).
+- **`queryToolSchema(engine, options)`** / **`buildQueryTool`**: the arguments decode into the
+  runnable `Query` through a codec (owned structural parser + `validateQuery`); problems are
+  told to the model in @aeye/schema's format at their paths (`errorFormat` option). No custom
+  `parse` hook; a bad call throws `SchemaParseError`. `parseQueryTool` / `parseQueryRequest`
+  stay for code-shape values (CLI, files) with the `Code` report.
+- **`FieldType.toA()`**: a field's value as the model writes it (closed sets, bounds, patterns);
+  a refinement's declared zod gate is checked on decode.
+- **`ExprClass.toA?(build)`**: a registered non-builtin expr kind's branch (`QueryGrammarBuild`).
+- **`Registry.version`**: bumped by every registration.
+- **Removed** (zod, model-facing): every expr's `static toSchema`, `exprDefSchema`,
+  `SchemaCache` / `enumOf` / `orFold` / `paramSchema` / `refSchema` and the per-kind ref schemas /
+  `functionExprSchema` / `writeValueSchema` / `insertRowSchema` / `updateSetSchema` /
+  `sorterSchema`, `withAid` / `withSharedId` / `sharedIdRegistry` / `directedMessage` /
+  `AidOptions`, `ExprClass.toSchema`, `SchemaOptions`' grammar slots.
+- **Fixed**: `buildSchemas` no longer leaks — the process-global `sharedIdRegistry` kept ~2.3 MB
+  per call (build + render); now 0–0.004 MB per call (`npm run bench:leak`).
+
 ## 0.6.6
 
 Two asks about the same thing from two directions: **a declared type should decide which values
