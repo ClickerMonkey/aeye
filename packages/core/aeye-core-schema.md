@@ -35,7 +35,7 @@ const summarize = new Prompt({ name: 'summarize', description: '…', content: '
 | `schema: (input, ctx) => z...` on a prompt | `.dynamic((ctx, input) => ...)` |
 | `schema: () => undefined` / `() => false` | `applicable: (ctx) => false` |
 | `schema: z.string().min(5)` on a prompt | `schema: a.string().min(5)` — the answer is the model's **text**, checked against it (no response format is sent) |
-| custom `parse` hooks | `a.codec(wire, { decode, encode })` / `.refine(...)` on the schema (`parse` still works, deprecated) |
+| custom `parse` hooks | `a.codec(wire, { decode, encode })` / `.refine(...)` on the schema (`decode` may return an `Error` or a `Rejection` of issues at paths) |
 | `strictify` / `toJSONSchema` / `decodeWire` | the request's plan (below) |
 
 The value `call` (and a prompt's result) receives is always in the **code shape**: records are records, an optional left out is absent (never `undefined`, never a `null` the model wrote for it), JSON text is parsed, whatever the model's dialect made it write.
@@ -125,9 +125,9 @@ Function forms get a value-only encoder: `instructionsFn: (ctx, encode) => \`Cal
 
 A top-level field sent as a JSON string (Claude does this with large arguments) is parsed back; the prompt emits `toolArgRepairAttempt { fields, success }` either way. A string of JSON text that doesn't parse is told as such ("send the value itself, not as a string").
 
-## The zod bridge (temporary)
+## zod
 
-Until `@aeye/gin` and `@aeye/query` produce `a` schemas (step 2 of the integration), a zod schema — or the old function form returning one, `undefined`/`false` meaning not applicable, with a prompt's `(input, ctx)` order — is still accepted: its definition is walked into an `a` schema (`zodToA`, memoized per zod instance; `z.lazy` and `.meta({ id | aid })` become named types), planned like any schema, and after decoding parsed by zod itself (refinements, defaults, transforms). `fromZod(zod)` hands a zod schema to code taking `a`. Everything outside gin/query/ginny uses `a`. `TODO(step 2)`: the bridge and core's `zod` dependency go.
+Core takes no zod (its `zod` dependency is gone). The step-1 bridge that walked a zod schema into `a` (`fromZod`, `isZodSchema`, the function forms, the custom `parse` hooks) was removed in step 2, once @aeye/gin and @aeye/query produce `a` schemas: gin's grammar is `GinGrammar` / `buildSchemas` (binds) and `Type.toA()`, query's is `buildSchemas` (binds) and `buildQueryTool`, whose codec decodes the arguments into a runnable `Query`.
 
 ## Gotchas
 

@@ -26,7 +26,7 @@ import { a, Prompt, Tool, Agent, withEvents } from '@aeye/core';   // `a` is @ae
 
 - Single entry point: `@aeye/core` (no subpath exports).
 - There is a separate **browser** build (`./dist/browser.js`, auto-selected via the `browser` export condition) that excludes the Node-only resource helpers in `to.ts` (which depend on `fs`/`path`/`stream`). Everything else (`types`, `common`, `schema`, `tool`, `prompt`, `agent`) is available in both.
-- Runtime deps: `@aeye/schema` (schemas) and `handlebars` (templates). `zod` remains only for the temporary bridge that accepts @aeye/gin / @aeye/query zod schemas (removed in step 2).
+- Runtime deps: `@aeye/schema` (schemas) and `handlebars` (templates). No zod.
 
 ## Core concepts (read these first)
 
@@ -43,7 +43,7 @@ import { a, Prompt, Tool, Agent, withEvents } from '@aeye/core';   // `a` is @ae
 | [`aeye-core-types.md`](./aeye-core-types.md) | The shared type model: `Component`, `Context`, `Message`, `Request`, `Response`, `Chunk`, `Usage`, `Executor`/`Streamer`, `Instance`/`Events`, plus `common.ts` utilities and `withEvents`. |
 | [`aeye-core-prompts.md`](./aeye-core-prompts.md) | `Prompt` class, `PromptInput`, the `get()` modes, `PromptEvent` stream, tool execution, retries, reconfig, suspend/resume. |
 | [`aeye-core-tools.md`](./aeye-core-tools.md) | `Tool` and `Agent` classes, `ToolInput`/`AgentInput`, `call`/`validate`/`applicable`, context-aware schemas, `ToolInterrupt`/`PromptSuspend`. |
-| [`aeye-core-schema.md`](./aeye-core-schema.md) | Schemas on tools/prompts, the strict policy, `prepareRequest` / `sentTools` / `sentOutput`, the dispatcher, errors for the model (`errorFormat`), `{{encode}}` / `{{schema}}`, the zod bridge. |
+| [`aeye-core-schema.md`](./aeye-core-schema.md) | Schemas on tools/prompts, the strict policy, `prepareRequest` / `sentTools` / `sentOutput`, the dispatcher, errors for the model (`errorFormat`), `{{encode}}` / `{{schema}}`. |
 
 ## 60-second example
 

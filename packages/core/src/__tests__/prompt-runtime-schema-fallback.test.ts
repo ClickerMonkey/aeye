@@ -81,11 +81,8 @@ function makePrompt(
     ...(schemaDelivery ? { schemaDelivery } : {}),
     ...(opts?.runtimeSchemaFallback !== undefined ? { runtimeSchemaFallback: opts.runtimeSchemaFallback } : {}),
     outputRetries: 3,
-    parse: (raw) => {
-      parseInputs.push(raw);
-      const v = (raw as { value?: unknown }).value;
-      return typeof v === 'number' ? { value: v } : new Error('value must be a number');
-    },
+    // Records each decoded answer (the schema already rejects a non-number).
+    validate: (output) => { parseInputs.push(output); },
   });
 }
 

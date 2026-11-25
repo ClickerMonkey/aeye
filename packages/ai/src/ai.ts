@@ -754,7 +754,7 @@ export class AI<T extends AIBaseTypes> {
   >(
     options: AIPromptInput<T, TName, TInput, TOutput, TTools, TDecoded>
   ) {
-    const { input, schema, config, reconfig, retool, parse, validate, review, applicable, metadataFn, onToolIntercept, ...rest } = options;
+    const { input, schema, config, reconfig, retool, validate, review, applicable, metadataFn, onToolIntercept, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -779,12 +779,10 @@ export class AI<T extends AIBaseTypes> {
       input: hydrateFn(input, (r) => (async (input, ctxPartial, encode) => {
         return r(input, await getContext(ctxPartial), encode);
       })),
-      // The schema's dynamic step gets the full context (`(ctx, input)`; a
-      // bridged zod function its old `(input, ctx)`).
+      // The schema's dynamic step gets the full context (`(ctx, input)`).
       schema: schema === undefined ? undefined : mapSchemaArgs(
         schema,
         async (ctxPartial: AIContextRequired<T>, promptInput: TInput) => [await getContext(ctxPartial), promptInput] as [AIContext<T>, TInput],
-        (ctx, promptInput) => [promptInput, ctx],
       ) as any,
       config: hydrateFn(config, (r) => (async (input ,ctxPartial) => {
         return r(input, await getContext(ctxPartial));
@@ -797,9 +795,6 @@ export class AI<T extends AIBaseTypes> {
       })),
       metadataFn: hydrateFn(metadataFn, (r) => (async (input, ctxPartial) => {
         return r(input, await getContext(ctxPartial));
-      })),
-      parse: hydrateFn(parse, (r) => (async (raw, ctxPartial) => {
-        return r(raw, await getContext(ctxPartial));
       })),
       validate: hydrateFn(validate, (r) => (async (output, ctxPartial) => {
         return r(output, await getContext(ctxPartial));
@@ -858,7 +853,7 @@ export class AI<T extends AIBaseTypes> {
   >(
     options: AIToolInput<T, TName, TParams, TOutput, TRefs, TDecoded>
   ) {
-    const { input, schema, call, parse, validate, applicable, parallelClaims, ...rest } = options;
+    const { input, schema, call, validate, applicable, parallelClaims, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -897,9 +892,6 @@ export class AI<T extends AIBaseTypes> {
       call: hydrateFn(call, (r) => async (params, refs, ctxPartial) => {
         return r(params, refs, await getContext(ctxPartial));
       }),
-      parse: hydrateFn(parse, (r) => (async (raw, ctxPartial) => {
-        return r(raw, await getContext(ctxPartial));
-      })),
       validate: hydrateFn(validate, (r) => (async (params, ctxPartial) => {
         return r(params, await getContext(ctxPartial));
       })),

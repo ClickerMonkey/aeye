@@ -10,7 +10,7 @@ class Prompt<TContext = {}, TMetadata = {}, TName extends string = string,
   implements Component<...>
 ```
 
-`TDecoded` is the decoded type a custom `parse` produces from the model's structured output — **any** value (a built AST/class instance, a number, an array, …), not just an object or string; it types `validate` and the decoded output. It defaults to the wire `TOutput` when no custom `parse` is supplied — `schema` always stays the wire type.
+`TOutput` is the schema's code-shape type: with `a.codec` **any** value (a built AST/class instance, a number, an array, …); it types `validate` and the output. `TDecoded` defaults to `TOutput` and is only kept for source compatibility (the custom `parse` hook that produced it is gone).
 
 A `Prompt` only does real work when the context supplies `execute` and/or `stream` (see [types doc](./aeye-core-types.md)). Without them, get/run yields nothing.
 
@@ -26,7 +26,6 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 | `schema?` | `a` schema or bundle (`Bindable<TOutput, [ctx, input]>`) | Output schema; a bundle's dynamic step takes `(ctx, input)`. Omitted → text; `a.string()` → the text, checked against it. Use `applicable` for "not here". |
 | `errorFormat?` | `ErrorFormatInput` | How an answer that doesn't fit is told to the model. Wins over `ctx.errorFormat`. |
 | `applicable?` | `(ctx) => boolean` | When false the prompt doesn't run (`get` returns `undefined`) and isn't offered. |
-| `parse?` | `(raw, ctx) => TDecoded \| Error \| Promise<…>` | Deprecated (use `a.codec` on the schema). A custom output parser: gets the decoded value (or the value as sent when it doesn't fit); a returned/thrown `Error` is retried through `outputRetries` with its own message. |
 | `strict?` | `boolean \| number` | Strict-mode policy, default `1`. See [schema doc](./aeye-core-schema.md). |
 | `config?` | `Fn<Partial<Request> \| false, [TInput?, ctx]>` | Per-request overrides (temperature, model, toolChoice, …). `false` ⇒ prompt not compatible. |
 | `reconfig?` | `(stats: PromptReconfigInput, ctx) => PromptReconfig` | Adapt config after each iteration based on runtime stats. |

@@ -5,8 +5,7 @@ import { ALL_CLAIMS, claimsConflict, NO_CLAIMS, ToolClaims } from './claims';
 import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, forcesTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { isTextOutput, isZodTextSchema, planRequest, renderTemplate, requestPlan, schemaSource, trackedEncoder, type OutputSchema, type RequestPlan, type TemplateTrack } from "./schema";
-import { finishZod } from "./zod-bridge";
+import { isTextOutput, planRequest, renderTemplate, requestPlan, schemaSource, trackedEncoder, type OutputSchema, type RequestPlan, type TemplateTrack } from "./schema";
 import { OutputValidationError, PromptError, ReviewRejectedError, SchemaRejectedError, ToolExecutionError, ToolFailure, ToolInputError } from "./errors";
 import { SCHEMA_FALLBACKS, structuredOutput } from "./delivery";
 
@@ -136,11 +135,9 @@ export interface PromptInput<
    * `(ctx, input)`, bound per call. Without one the output is the model's
    * text; `a.string()` (with checks, e.g. `.min(5)`) is the text too,
    * checked. `TOutput` is inferred from it. Use `applicable` for a prompt
-   * that doesn't apply in some contexts.
-   *
-   * (A zod schema, or a function `(input, ctx)` returning one or `false`, is
-   * still accepted as a temporary bridge for @aeye/gin and @aeye/query.
-   * TODO(step 2): remove.)
+   * that doesn't apply in some contexts. Mapping the answer into what the
+   * prompt returns is a codec on the schema (`a.codec`), checks are
+   * `.refine`.
    */
   schema?: OutputSchema<TOutput, Context<TContext, TMetadata>, TInput>;
   /**
@@ -239,10 +236,10 @@ export interface PromptInput<
   // Number of attempts to retry tool calls upon failure. Defaults to 2. */
   toolRetries?: number;
   // Maximum number of characters of any validation error message
-  // (Zod tool-arg parse, output schema parse, output validate, JSON parse)
-  // surfaced back to the LLM as a corrective user message. Lengthy zod
-  // errors against deep recursive schemas can otherwise blow past 100k
-  // characters, blowing the model's context and the user's terminal both.
+  // (tool-arg parse, output schema parse, output validate, JSON parse)
+  // surfaced back to the LLM as a corrective user message. Schema errors
+  // are already capped by their errorFormat (maxChars); a validate hook's
+  // or a JSON error can still run long.
   // Truncation appends a `… (N more characters)` marker. Default 4096.
   validationErrorMaxLength?: number;
   // Number of attempts to get the output in the right format and to pass validation. Defaults to what's on the context, which defaults to 2.
@@ -355,16 +352,6 @@ export interface PromptInput<
     ctx: Context<TContext, TMetadata>,
     call: ToolCall,
   ) => unknown | false | Promise<unknown | false>;
-  /**
-   * @deprecated Code-shape mapping belongs on the schema (`a.codec`,
-   * `.refine`); kept during the bridge. TODO(step 2): remove.
-   *
-   * Optional custom parser of the model's STRUCTURED OUTPUT. The output is
-   * decoded from the model's wire shape first; when it doesn't fit the
-   * schema the parser gets it as the model sent it, and its `Error` is
-   * what the model is told.
-   */
-  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
   // Optional post-validation hook that runs after decoding succeeds on the final DECODED output (`TDecoded`). Can throw to trigger re-prompting.
   validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   /**
@@ -595,10 +582,9 @@ export class Prompt<
     // One static schema; its dynamic part is bound per run with (ctx, input),
     // and the answer is decoded through the plan the request was sent with,
     // so decoding always matches the wire shape the model actually saw.
-    // (A bridged zod function keeps its old (input, ctx) order.)
     private output = input.schema === undefined
       ? undefined
-      : schemaSource<TOutput, [Context<TContext, TMetadata>, TInput]>(input.schema as never, (ctx, promptInput) => [promptInput, ctx]),
+      : schemaSource<TOutput, [Context<TContext, TMetadata>, TInput]>(input.schema),
     private config = resolveFn(input.config),
     private translate = resolveFn(input.input),
     private content = Prompt.compileContent(input.content, !!input.tools?.length),
@@ -762,10 +748,6 @@ export class Prompt<
       return this.input.applicable(ctx);
     }
     if (this.input.retool && await this.retool(undefined, ctx) === false) {
-      return false;
-    }
-    // A bridged zod schema function returning false means "not here" (TODO(step 2)).
-    if (this.output?.bridged && await this.output.bind(ctx, undefined as unknown as TInput) === undefined) {
       return false;
     }
     if (this.input.config && await this.config(undefined, ctx) === false) {
@@ -1440,37 +1422,11 @@ export class Prompt<
           if (parsedOk) {
             const entry = requestPlan(request).output!;
             const decoded = entry.parse(parsedJSON);
-
-            if (this.input.parse) {
-              // A custom parser (bridge) owns the output: decoded when it
-              // fits, as sent when it doesn't, so its diagnostics speak.
-              let customResult: TDecoded | Error;
-              try {
-                customResult = await this.input.parse(decoded.ok ? decoded.value : parsedJSON, ctx);
-              } catch (customError: any) {
-                customResult = customError instanceof Error ? customError : new Error(String(customError));
-              }
-              if (customResult instanceof Error) {
-                failure = invalid(customResult.message, 'schema-parsing');
-              } else {
-                result = customResult;
-              }
-            } else if (!decoded.ok) {
+            if (!decoded.ok) {
               failure = invalid(decoded.message, 'schema-parsing');
             } else {
-              let value: unknown = decoded.value;
-              if (this.output?.bridged) {
-                // A bridged zod schema parses the decoded value too (TODO(step 2)).
-                const finished = await finishZod(entry.boundSchema, value, parsedJSON, entry.errorFormat, entry.label);
-                if (finished.ok) {
-                  value = finished.value;
-                } else {
-                  failure = invalid(finished.message, 'schema-parsing');
-                }
-              }
-              if (!failure) {
-                result = value as TDecoded;
-              }
+              // The schema's code shape (codecs applied) is the output.
+              result = decoded.value as unknown as TDecoded;
             }
 
             if (!failure && result !== undefined) {
@@ -1755,12 +1711,8 @@ export class Prompt<
       return undefined;
     }
 
-    // The output schema, bound for this run. A bridged zod function returning
-    // false means the prompt isn't compatible with the context (TODO(step 2)).
+    // The output schema, bound for this run.
     const output: Bound<TOutput> | undefined = this.output ? await this.output.bind(ctx, input) : undefined;
-    if (this.output && !output) {
-      return undefined;
-    }
 
     // Determine if prompt can run based on tool compatibility with the context
     const retooling = await this.retool(input, ctx);
@@ -1809,17 +1761,15 @@ export class Prompt<
         .map(r => r.tool);
     }
 
-    // Each tool with its definition (its schema bound for this run); a tool
-    // whose (bridged zod) schema function returns nothing is left out.
+    // Each tool with its definition (its schema bound for this run).
     const defined = selectedTools && selectedTools.length > 0
-      ? (await Promise.all(selectedTools.map(async (tool) => ({ tool, definition: await tool.definition(ctx) }))))
-          .flatMap(({ tool, definition }) => definition ? [{ tool, definition }] : [])
+      ? await Promise.all(selectedTools.map(async (tool) => ({ tool, definition: await tool.definition(ctx) })))
       : undefined;
     const tools = defined?.map(d => d.definition);
     const toolObjects = defined ?? [];
 
     // Determine response format: `a.string()` answers in text.
-    const textOutput = !!output && (isTextOutput(output) || isZodTextSchema(this.input.schema));
+    const textOutput = !!output && isTextOutput(output);
     const responseFormat: ResponseFormat = output && !textOutput
       ? {
           type: output,
@@ -1887,8 +1837,8 @@ export class Prompt<
 
   /**
    * Truncate a validation error so the corrective user message we send back
-   * to the LLM stays bounded. Lengthy zod errors against deep recursive
-   * schemas can run 100k+ characters — eating context and burning tokens
+   * to the LLM stays bounded. A validate hook's or a JSON error can run
+   * long (schema errors are capped by their errorFormat) — eating context and burning tokens
    * on noise the model can't usefully act on. Anything past `max` is
    * replaced with a `… (N more characters)` marker so the LLM both knows
    * the message was clipped and roughly how much was lost.
@@ -2373,7 +2323,7 @@ function newToolExecution<T extends AnyTool>(
         // (OpenRouter/Anthropic) or a genuine model gaffe — calling it
         // out by name in the error gives the model a clearer cue to
         // fix itself on the retry turn instead of repeating the empty
-        // call. The latter (bad arguments) keeps its original Zod /
+        // call. The latter (bad arguments) keeps its original schema /
         // JSON.parse message, which already names the offending field.
         // A schema error already shows the model its own arguments.
         const reason = isEmpty

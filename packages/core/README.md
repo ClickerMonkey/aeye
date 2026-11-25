@@ -520,7 +520,7 @@ A bad call or answer is told to the model in its own shape: its JSON echoed back
 class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools extends Tuple<ToolCompatible<TContext, TMetadata>>, TDecoded extends unknown = TOutput>
 ```
 
-`TDecoded` is the type a custom `parse` produces from the model's structured output (e.g. a built AST/class instance); it types `validate` and the decoded output. It defaults to `TOutput` (the wire type) when no custom `parse` is supplied — `schema` always stays the wire type.
+`TOutput` is the schema's code-shape type (use `a.codec` to decode into a class instance). `TDecoded` defaults to `TOutput`; the custom `parse` hook that set it is gone.
 
 **Constructor Options (`PromptInput`):**
 - `name: string` - Unique identifier
@@ -557,7 +557,7 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>, TDecoded extends unknown = TParams>
 ```
 
-`TParams` is the schema's code-shape type (use `a.codec` to decode into a class instance). `TDecoded` is what a deprecated custom `parse` produces; it defaults to `TParams`.
+`TParams` is the schema's code-shape type (use `a.codec` to decode into a class instance). `TDecoded` defaults to `TParams`; the custom `parse` hook that set it is gone.
 
 **Constructor Options (`ToolInput`):**
 - `name: string` - Unique identifier (shown to the AI model)

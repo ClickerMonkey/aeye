@@ -12,7 +12,7 @@ class Tool<TContext = {}, TMetadata = {}, TName extends string = string,
   implements Component<...>
 ```
 
-`TDecoded` is the decoded type a custom `parse` produces from the raw wire args — **any** value (a built class instance, a number, a `Date`, …), not just an object; it types `call`, `validate`, and `metadataFn`. It defaults to the wire `TParams` when no custom `parse` is supplied — `schema` always stays the wire type.
+`TParams` is the schema's code-shape type: with `a.codec` **any** value (a built class instance, a number, a `Date`, …); it types `call`, `validate` and `metadataFn`. `TDecoded` defaults to `TParams` and is only kept for source compatibility (the custom `parse` hook that produced it is gone).
 
 ### `ToolInput` (constructor config)
 
@@ -47,7 +47,7 @@ claims(input, ctx): Promise<ToolClaims>                      // resolve parallel
 hasParallelClaims: boolean                                   // whether parallelClaims is declared
 ```
 
-`parse(ctx, args, plan?, onRepairAttempt?, { name?, errorFormat? })` decodes the model's JSON `arguments` through the request's plan — from the shape that model was given (pairs, `null` for absent, JSON text, a call through the `run_tool` dispatcher) into the code shape — and runs `validate`; a mismatch throws a `SchemaParseError` whose message is what the model is told. Top-level fields sent as JSON strings are repaired and `onRepairAttempt` fires for telemetry. `definition(ctx)` gives the request's `ToolDefinition` (`parameters` is the bound schema), `instructionsFor(ctx, plan)` the instructions for a plan, `encoder(ctx, plan?)` a value-only encoder. A custom `parse` (deprecated; use `a.codec`) receives the decoded value, or the value as sent when it doesn't fit.
+`parse(ctx, args, plan?, onRepairAttempt?, { name?, errorFormat? })` decodes the model's JSON `arguments` through the request's plan — from the shape that model was given (pairs, `null` for absent, JSON text, a call through the `run_tool` dispatcher) into the code shape — and runs `validate`; a mismatch throws a `SchemaParseError` whose message is what the model is told. Top-level fields sent as JSON strings are repaired and `onRepairAttempt` fires for telemetry. `definition(ctx)` gives the request's `ToolDefinition` (`parameters` is the bound schema), `instructionsFor(ctx, plan)` the instructions for a plan, `encoder(ctx, plan?)` a value-only encoder. Mapping into another value (a class, a runnable query) is a codec on the schema; its `decode` returning an `Error` / `Rejection` is told to the model like any mismatch.
 
 A tool with `format` (free text, optionally grammar-constrained) takes `TEXT_TOOL_SCHEMA` (`{ input: string }`). Providers without free-text tools send it as that one-field function and use `describeTool(definition)` for its description, which appends the grammar for a `{ type: 'grammar' }` format.
 

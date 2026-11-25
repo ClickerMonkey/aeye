@@ -1,13 +1,12 @@
 /**
  * Type-level proofs for Tool / Prompt on `a` schemas: the call and output
  * types come from the schema in every form (static, dynamic bundle bound
- * from ctx, from (ctx, input), a codec, the zod bridge), and a schema whose
+ * from ctx, from (ctx, input), a codec), and a schema whose
  * dynamic step needs more than the component's ctx is a compile error.
  * Checked by `tsc` (node_modules/.tc/core-tests.json); at runtime the file
  * only constructs the components.
  */
 import { expectTypeOf } from 'expect-type';
-import { z } from 'zod';
 import { a } from '@aeye/schema';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
@@ -56,16 +55,6 @@ const codecTool = new Tool({
   },
 });
 
-// TODO(step 2): the bridge — zod infers too.
-const zodTool = new Tool({
-  name: 'zod',
-  description: 'z',
-  schema: z.object({ id: z.number() }),
-  call: (input) => {
-    expectTypeOf(input).toEqualTypeOf<{ id: number }>();
-    return input.id;
-  },
-});
 
 const staticPrompt = new Prompt({ name: 'p', description: 'p', content: 'x', schema: Static });
 const inputPrompt = new Prompt({ name: 'p2', description: 'p', content: 'x', schema: ByInput, input: (input: { extra: boolean } | undefined) => ({ e: input?.extra }) });
@@ -99,6 +88,6 @@ new Tool({
 
 describe('schema types', () => {
   it('constructs every form', () => {
-    expect([staticTool, dynamicTool, codecTool, zodTool].map(t => t.name)).toEqual(['static', 'dynamic', 'codec', 'zod']);
+    expect([staticTool, dynamicTool, codecTool].map(t => t.name)).toEqual(['static', 'dynamic', 'codec']);
   });
 });

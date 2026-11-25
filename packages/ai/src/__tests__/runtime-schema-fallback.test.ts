@@ -11,8 +11,8 @@
  * Scenario: an OpenAI-family model with structured output returns EMPTY
  * content on the first structured attempt. Core promotes delivery to
  * prompt-text; on the retry `prepareRequest` DROPS `response_format` and
- * APPENDS the schema as prompt text, and the Prompt's `parse` hook then runs
- * on the retry's JSON.
+ * APPENDS the schema as prompt text, and the Prompt's `validate` hook then
+ * runs on the retry's decoded JSON.
  */
 
 import { a } from '@aeye/schema';
@@ -74,11 +74,8 @@ function makePrompt(parseInputs: unknown[]) {
     strict: false,
     schemaDelivery: 'auto',
     outputRetries: 3,
-    parse: (raw) => {
-      parseInputs.push(raw);
-      const v = (raw as { value?: unknown }).value;
-      return typeof v === 'number' ? { value: v } : new Error('value must be a number');
-    },
+    // Records each decoded answer (the schema already rejects a non-number).
+    validate: (output) => { parseInputs.push(output); },
   });
 }
 

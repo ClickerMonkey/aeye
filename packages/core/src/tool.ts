@@ -3,7 +3,6 @@ import { SchemaParseError, type DecodedCall, type Encoder, type ErrorFormatInput
 import { NO_CLAIMS, ToolClaims } from './claims';
 import { Fn, resolveFn } from './common';
 import { planRequest, renderTemplate, schemaSource, trackedEncoder, type RequestPlan, type TemplateTrack, type ToolSchema } from './schema';
-import { finishZod } from './zod-bridge';
 import { Component, ComponentCompatible, Context, OptionalParams, Request, SchemaDelivery, ToolChoice, ToolDefinition, ToolTextFormat, Tuple } from './types';
     
 /**
@@ -86,10 +85,9 @@ export interface ToolInput<
   /**
    * The tool's arguments: one static `a` schema, or a bundle whose dynamic
    * step takes the ctx (`a.define(...).dynamic((ctx) => ...).result(...)`),
-   * bound per call. `TParams` is inferred from it.
-   *
-   * (A zod schema, or a function returning one, is still accepted as a
-   * temporary bridge for @aeye/gin and @aeye/query. TODO(step 2): remove.)
+   * bound per call. `TParams` is inferred from it. Mapping the model's
+   * answer into what `call` gets (a runnable query, a parsed date, …) is a
+   * codec on the schema (`a.codec`), checks are `.refine`.
    */
   schema: ToolSchema<TParams, Context<TContext, TMetadata>>;
   /**
@@ -136,19 +134,8 @@ export interface ToolInput<
   refs?: TRefs;
   /** The function that implements the tool's behavior. Receives the DECODED
    * input in the code shape (records are records, absent is absent, whatever
-   * the model wrote): `TParams`, or the RETURN type of a custom `parse`. */
+   * the model wrote): `TParams`, codecs applied. */
   call: (input: TDecoded, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
-  /**
-   * @deprecated Code-shape mapping belongs on the schema (`a.codec`,
-   * `.refine`). Kept for @aeye/query's `buildQueryTool` during the bridge.
-   * TODO(step 2): remove.
-   *
-   * A custom parser that owns turning the decoded arguments into `TDecoded`.
-   * The arguments are decoded from the model's wire shape first; when they
-   * don't fit the schema the parser gets them as the model sent them and
-   * its `Error` (returned or thrown) is what the model is told.
-   */
-  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
   /** Optional post-validation hook that runs after decoding succeeds. Receives the DECODED value (`TDecoded`). Can throw to trigger re-prompting. */
   validate?: (input: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   /**
@@ -359,7 +346,6 @@ export class Tool<
   /**
    * The tool's argument schema bound for a call: the static schema, or the
    * bundle with its dynamic step run for `ctx` (cached by the bundle's key).
-   * `undefined` only for a bridged zod function that returned nothing.
    */
   async bind(ctx: Context<TContext, TMetadata>) {
     return this.source.bind(ctx);
@@ -367,14 +353,10 @@ export class Tool<
 
   /**
    * The tool's definition for a request: its bound schema, description and
-   * strict policy. `undefined` when the tool has no schema here (a bridged
-   * zod function returned nothing); use `applicable` to hide a tool.
+   * strict policy. (Use `applicable` to hide a tool.)
    */
-  async definition(ctx: Context<TContext, TMetadata>): Promise<ToolDefinition | undefined> {
+  async definition(ctx: Context<TContext, TMetadata>): Promise<ToolDefinition> {
     const parameters = await this.source.bind(ctx);
-    if (!parameters) {
-      return undefined;
-    }
     // Default to numeric priority 1 (best-effort preference) instead of
     // boolean true. See ToolInput.strict JSDoc for the tri-state semantics.
     return {
@@ -465,14 +447,7 @@ export class Tool<
       );
     }
 
-    let target = plan;
-    if (!target) {
-      const definition = await this.definition(ctx);
-      if (!definition) {
-        throw new Error(`Not able to build a schema to parse arguments for ${this.input.name}`);
-      }
-      target = planRequest({ tools: [definition] });
-    }
+    const target = plan ?? planRequest({ tools: [await this.definition(ctx)] });
 
     const raw: unknown = JSON.parse(args);
     const name = call.name ?? this.input.name;
@@ -485,12 +460,7 @@ export class Tool<
     let decoded: DecodedCall;
     let repaired = 0;
     const own = !dispatched && target.has(name) ? target.get(name as never) as unknown as RequestEntry<unknown> : undefined;
-    if (own && own.delivery !== 'dispatched' && this.source.bridged && own.profile.family === 'lenient' && own.rendered.wrapped === false) {
-      // A bridged zod schema sent in the code shape: nothing to decode, and zod
-      // (or the custom parser) validates below — as before the bridge, without
-      // trying every option of a huge union twice (TODO(step 2)).
-      decoded = { ok: true, tool: own.requestedName, value: raw };
-    } else if (own && own.delivery !== 'dispatched') {
+    if (own && own.delivery !== 'dispatched') {
       const res = own.parse(raw, opts);
       repaired = res.stats.repaired;
       decoded = res.ok
@@ -509,38 +479,12 @@ export class Tool<
         onRepairAttempt?.({ fields: fixed, success: true });
       }
     }
-    const entry = target.has(decoded.tool ?? name) ? target.get((decoded.tool ?? name) as never) as unknown as RequestEntry<unknown> : undefined;
-
-    // A custom parser (bridge) owns the arguments: decoded when they fit,
-    // as sent when they don't, so its own diagnostics speak.
-    if (this.input.parse) {
-      const value = decoded.ok ? decoded.value : argsOf(raw);
-      const result = await this.input.parse(value, ctx);
-      if (result instanceof Error) {
-        throw result;
-      }
-      if (this.input.validate) {
-        await this.input.validate(result, ctx);
-      }
-      return result;
-    }
-
     if (!decoded.ok) {
       throw new SchemaParseError(decoded.issues, decoded.message);
     }
 
-    let value: unknown = decoded.value;
-    if (this.source.bridged && entry) {
-      // A bridged zod schema parses the decoded value too (TODO(step 2)).
-      const finished = await finishZod(entry.boundSchema, value, argsOf(raw), call.errorFormat ?? entry.errorFormat, entry.label);
-      if (!finished.ok) {
-        throw new SchemaParseError([], finished.message);
-      }
-      value = finished.value;
-    }
-
-    // With no custom `parse`, `TDecoded` is `TParams`.
-    const result = value as TDecoded;
+    // The schema's code shape (codecs applied) is what the tool takes.
+    const result = decoded.value as TDecoded;
     if (this.input.validate) {
       await this.input.validate(result, ctx);
     }
@@ -550,18 +494,14 @@ export class Tool<
   /**
    * Compiles the tool on its own (outside a prompt): its instructions,
    * rendered in the code shape, and its definition. A tool with no
-   * instructions still compiles: its instructions are `''`. Only a tool
-   * whose (bridged zod) schema function returns nothing is left out; use
+   * instructions still compiles: its instructions are `''`. Use
    * `applicable` to hide a tool.
    *
    * @param ctx - The context for compilation.
-   * @returns A tuple of [instructions, toolDefinition], or undefined when the tool has no schema.
+   * @returns A tuple of [instructions, toolDefinition].
    */
   async compile(ctx: Context<TContext, TMetadata>): Promise<readonly [string, ToolDefinition] | undefined> {
     const definition = await this.definition(ctx);
-    if (!definition) {
-      return undefined;
-    }
     const plan = planRequest({ tools: [{ ...definition }] });
     return [await this.instructionsFor(ctx, plan), definition] as const;
   }
@@ -605,11 +545,6 @@ export class Tool<
     if (this.input.applicable) {
       return this.input.applicable(ctx);
     }
-    // A bridged zod function returning nothing means "not here" (TODO(step 2)).
-    if (this.source.bridged && await this.source.bind(ctx) === undefined) {
-      return false;
-    }
-
     // If there are no refs, the tool is self-contained and applicable
     if (this.refs.length === 0) {
       return true;

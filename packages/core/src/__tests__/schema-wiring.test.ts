@@ -1,6 +1,6 @@
 /**
  * Schema wiring: answers are decoded through the plan the request was sent
- * with, and every consumer (a custom `parse` hook, a tool's `call`, the
+ * with, and every consumer (a codec on the schema, a tool's `call`, the
  * prompt's result) sees the CODE shape, whatever the model wrote.
  *
  * (The encode/decode of each dialect itself — records as pairs, null for
@@ -29,18 +29,20 @@ const ArgsSchema = a.object({
   limit: a.number().optional(),
 });
 
-describe('Tool.parse + Prompt output parse hand the conceptual value to a custom parse', () => {
+/** The schema with a codec that records the value it decodes (the code shape, after the wire is undone). */
+const capture = (received: { raw?: unknown }) => a.codec(ArgsSchema, {
+  decode: (v: Args) => { received.raw = v; return v; },
+  encode: (v: Args) => v,
+});
+
+describe("Tool.parse + Prompt output parse hand the conceptual value to the schema's codec", () => {
   describe('Tool.parse', () => {
     const makeTool = (received: { raw?: unknown }) =>
       new Tool<{}, {}, string, Args>({
         name: 'wire-tool',
-        description: 'decode before custom parse',
+        description: 'decode before the codec',
         instructions: '',
-        schema: ArgsSchema,
-        parse: (raw) => {
-          received.raw = raw;
-          return raw as Args;
-        },
+        schema: capture(received),
         call: () => 'ok',
       });
 
@@ -78,15 +80,15 @@ describe('Tool.parse + Prompt output parse hand the conceptual value to a custom
       expect(received.raw).toEqual({ args: { a: 'b' }, limit: 2 });
     });
 
-    it('with NO plan: wire pairs do not fit the code shape, so the custom parse gets them as sent', async () => {
+    it('with NO plan: wire pairs do not fit the code shape, so the call is rejected before the codec', async () => {
       const received: { raw?: unknown } = {};
       const tool = makeTool(received);
       const ctx = {} as Context<{}, {}>;
-      await tool.parse(ctx, JSON.stringify({ args: [{ key: 'a', value: 'b' }] }));
-      expect(received.raw).toEqual({ args: [{ key: 'a', value: 'b' }] });
+      await expect(tool.parse(ctx, JSON.stringify({ args: [{ key: 'a', value: 'b' }] }))).rejects.toThrow();
+      expect(received.raw).toBeUndefined();
     });
 
-    it('a call without a custom parse gets the code shape too', async () => {
+    it('a call without a codec gets the code shape too', async () => {
       const seen: unknown[] = [];
       const tool = new Tool({
         name: 'wire-tool',
@@ -107,13 +109,9 @@ describe('Tool.parse + Prompt output parse hand the conceptual value to a custom
     const makePrompt = (received: { raw?: unknown }) =>
       new Prompt<{}, {}, string, {}, Args>({
         name: 'wire-prompt',
-        description: 'decode before custom output parse',
+        description: 'decode before the output codec',
         content: 'Test',
-        schema: ArgsSchema,
-        parse: (raw) => {
-          received.raw = raw;
-          return raw as Args;
-        },
+        schema: capture(received),
       });
 
     it('planned for OpenAI strict by the provider (executor)', async () => {
@@ -158,7 +156,7 @@ describe('Tool.parse + Prompt output parse hand the conceptual value to a custom
       expect(result).toEqual({ args: { x: 'y' }, limit: 3 });
     });
 
-    it('without a custom parse the result is the code shape', async () => {
+    it('without a codec the result is the code shape', async () => {
       const prompt = new Prompt({
         name: 'wire-prompt',
         description: 'decode the output',

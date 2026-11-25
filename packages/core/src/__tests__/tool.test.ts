@@ -270,92 +270,37 @@ describe('Tool', () => {
     });
   });
 
-  describe('Custom parse (deprecated hook)', () => {
-    // The optional `parse` hook owns the arguments: it gets the decoded
-    // value when it fits the schema, the raw value otherwise, and its Error
-    // is what the model is told. The pipeline is JSON.parse → decode →
-    // parse → validate. Lets a caller (e.g. @aeye/query) surface concise,
-    // compiler-style errors with source underlines.
+  describe('Codecs (what the custom parse hook did)', () => {
+    // Mapping the model's arguments into what `call` takes is a codec on the
+    // schema: `decode` gets the decoded code shape and returns the value, an
+    // Error (one problem at the value) or a Rejection (problems at paths),
+    // and may be any object (TParams extends object; the hook allowed primitives).
+    // The model is told it in the tool's errorFormat. Then `validate` runs.
 
-    it('should use the custom parser even when the schema rejects the args', async () => {
-      // The schema would REJECT this shape (requires { value: number }),
-      // but the custom parser gets the raw value and produces its own
-      // typed result, so parse succeeds.
-      const tool = new Tool<{}, {}, string, { value: number }, number>({
-        name: 'byo-parser',
-        description: 'Bring your own parser',
+    it("a codec's Error is what the model is told, at the value", async () => {
+      const tool = new Tool({
+        name: 'codec-error',
+        description: 'Codec rejects',
         instructions: '',
-        schema: a.object({ value: a.number() }),
-        parse: (raw) => {
-          const r = raw as { n?: unknown };
-          return { value: Number(r.n) };
-        },
+        schema: a.codec(a.object({ value: a.number() }), {
+          decode: () => new Error('nice compiler-style error here'),
+          encode: (v: { value: number }) => v,
+        }),
         call: (input) => input.value,
       });
       const ctx = {} as Context<{}, {}>;
-      // Shape the schema would reject ({ n: "5" } has no numeric `value`).
-      const parsed = await tool.parse(ctx, JSON.stringify({ n: '5' }));
-      expect(parsed).toEqual({ value: 5 });
+      await expect(tool.parse(ctx, JSON.stringify({ value: 1 }))).rejects.toThrow(/nice compiler-style error here/);
     });
 
-    it('should short-circuit with a returned Error and NOT surface schema errors', async () => {
-      const tool = new Tool<{}, {}, string, { value: number }, number>({
-        name: 'byo-error-return',
-        description: 'Custom parser returns rich error',
+    it('still runs the post-validate hook after the codec', async () => {
+      const tool = new Tool({
+        name: 'codec-validate',
+        description: 'Codec + validate',
         instructions: '',
-        schema: a.object({ value: a.number() }),
-        parse: () => new Error('nice compiler-style error ^^^ here'),
-        call: (input) => input.value,
-      });
-      const ctx = {} as Context<{}, {}>;
-      let msg = '';
-      try {
-        await tool.parse(ctx, JSON.stringify({ value: 1 }));
-      } catch (e: any) {
-        msg = e.message;
-      }
-      expect(msg).toBe('nice compiler-style error ^^^ here');
-      // The schema's message vocabulary must not appear.
-      expect(msg).not.toMatch(/expected|problem|zod/i);
-    });
-
-    it('should propagate a rich caller-supplied Error subclass (thrown)', async () => {
-      // Mirrors how @aeye/query throws a QueryTypeError carrying a
-      // structured Problem alongside the rendered message.
-      class RichError extends Error {
-        constructor(message: string, readonly problems: Array<{ code: string }>) {
-          super(message);
-          this.name = 'RichError';
-        }
-      }
-      const tool = new Tool<{}, {}, string, { value: number }, number>({
-        name: 'byo-rich',
-        description: 'Custom parser throws rich error',
-        instructions: '',
-        schema: a.object({ value: a.number() }),
-        parse: () => {
-          throw new RichError('underlined error', [{ code: 'field-type.unknown' }]);
-        },
-        call: (input) => input.value,
-      });
-      const ctx = {} as Context<{}, {}>;
-      let caught: any;
-      try {
-        await tool.parse(ctx, JSON.stringify({ value: 1 }));
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeInstanceOf(RichError);
-      expect(caught.problems).toEqual([{ code: 'field-type.unknown' }]);
-    });
-
-    it('should still run the post-validate hook after custom parse', async () => {
-      const tool = new Tool<{}, {}, string, { value: number }, number>({
-        name: 'byo-validate',
-        description: 'Custom parser + validate',
-        instructions: '',
-        schema: a.object({ value: a.number() }),
-        parse: (raw) => ({ value: (raw as { value: number }).value }),
+        schema: a.codec(a.object({ value: a.number() }), {
+          decode: (w) => ({ value: w.value }),
+          encode: (v: { value: number }) => v,
+        }),
         validate: (input) => {
           if (input.value < 0) throw new Error('must be non-negative');
         },
@@ -363,13 +308,12 @@ describe('Tool', () => {
       });
       const ctx = {} as Context<{}, {}>;
       await expect(tool.parse(ctx, JSON.stringify({ value: -1 }))).rejects.toThrow('must be non-negative');
-      const parsed = await tool.parse(ctx, JSON.stringify({ value: 3 }));
-      expect(parsed).toEqual({ value: 3 });
+      expect(await tool.parse(ctx, JSON.stringify({ value: 3 }))).toEqual({ value: 3 });
     });
 
-    it('without a parse option the schema decodes and rejects', async () => {
+    it('without a codec the schema decodes and rejects', async () => {
       const tool = new Tool<{}, {}, string, { value: number }, number>({
-        name: 'no-byo',
+        name: 'no-codec',
         description: 'Default schema path',
         instructions: '',
         schema: a.object({ value: a.number() }),
@@ -382,12 +326,7 @@ describe('Tool', () => {
       await expect(tool.parse(ctx, JSON.stringify({ value: 'nope' }))).rejects.toThrow(/value: Expected a number, got string/);
     });
 
-    it('should drive the DECODED type from parse\'s return type (class instance)', async () => {
-      // A custom `parse` that builds a class instance. The `schema`
-      // stays the WIRE shape ({ value: number }); `parse` turns the raw
-      // wire value into a `Built`. Per the `TDecoded` generic, the handler
-      // `call` (and `validate`) must receive the DECODED `Built`, not the
-      // wire shape.
+    it("the codec's output type is what call and validate get (class instance)", async () => {
       class Built {
         constructor(readonly value: number) {}
         doubled(): number {
@@ -397,22 +336,19 @@ describe('Tool', () => {
 
       let seenInValidate: unknown;
       let seenInCall: unknown;
-
-      // No explicit generics: `TParams` infers from `schema` (the wire
-      // shape), and `TDecoded` infers from `parse`'s return type (`Built`).
-      // (TypeScript does not do partial type-argument inference, so proving
-      // inference requires omitting the generics entirely.)
+      // No explicit generics: `TParams` infers from the codec (`Built`).
       const tool = new Tool({
         name: 'decoded-class',
-        description: 'parse returns a class instance',
+        description: 'the codec builds a class instance',
         instructions: '',
-        schema: a.object({ value: a.number() }),
-        parse: (raw) => new Built(Number((raw as { value: number }).value)),
+        schema: a.codec(a.object({ value: a.number() }), {
+          decode: (w) => new Built(w.value),
+          encode: (b: Built) => ({ value: b.value }),
+        }),
         validate: (input) => {
-          // Compile-time: `input` is `Built` (has `doubled`), not `{ value }`.
+          // Compile-time: `input` is `Built` (has `doubled`).
           seenInValidate = input.doubled();
         },
-        // Compile-time: `input` is `Built`; calling `doubled()` type-checks.
         call: (input) => {
           seenInCall = input;
           return input.doubled();
@@ -420,81 +356,36 @@ describe('Tool', () => {
       });
 
       const ctx = {} as Context<{}, {}>;
-
-      // parse() yields the decoded class instance at runtime.
       const parsed = await tool.parse(ctx, JSON.stringify({ value: 21 }));
       expect(parsed).toBeInstanceOf(Built);
       expect(seenInValidate).toBe(42);
 
-      // run() feeds the decoded instance to the handler.
       const result = await tool.run(new Built(21), ctx);
       expect(result).toBe(42);
       expect(seenInCall).toBeInstanceOf(Built);
 
-      // Type-level: assigning to the decoded type must compile; assigning
-      // the wire shape to `Built` must NOT (guards against regressions).
-      const decoded: Built = new Built(1);
-      expect(decoded.doubled()).toBe(2);
-      // @ts-expect-error — the wire shape is not assignable to the decoded type.
+      // @ts-expect-error — the wire shape is not the decoded type.
       const bad: Built = { value: 1 };
       void bad;
     });
 
-    it('should allow a custom parse that decodes to a PRIMITIVE (number)', async () => {
-      // The widened `TDecoded extends unknown` constraint lets a custom
-      // `parse` return a non-object. Here `parse` collapses the wire shape
-      // to a bare `number`; `call` must therefore receive a `number`.
-      let seenInCall: unknown;
-
-      // No explicit generics: `TParams` infers from `schema` (the wire
-      // shape), `TDecoded` infers from `parse`'s return type (`number`).
-      const tool = new Tool({
-        name: 'decoded-number',
-        description: 'parse returns a bare number',
-        instructions: '',
-        schema: a.object({ value: a.number() }),
-        parse: (raw) => (raw as { value: number }).value + 1,
-        call: (input) => {
-          // Type-level: `input` is exactly `number`, not the wire object.
-          type _CallArgIsNumber = Expect<Equal<typeof input, number>>;
-          seenInCall = input;
-          return input * 10;
-        },
-      });
-
-      const ctx = {} as Context<{}, {}>;
-
-      // parse() yields the decoded primitive at runtime.
-      const parsed = await tool.parse(ctx, JSON.stringify({ value: 41 }));
-      expect(parsed).toBe(42);
-
-      // run() feeds the decoded number straight to the handler.
-      const result = await tool.run(42, ctx);
-      expect(result).toBe(420);
-      expect(seenInCall).toBe(42);
-    });
-
-    it('should allow a custom parse that decodes to an ARRAY', async () => {
-      // Another non-object decoded type: an array. Proves the widening is
-      // not special-cased to primitives.
+    it('a codec can decode to an ARRAY', async () => {
       const tool = new Tool({
         name: 'decoded-array',
-        description: 'parse returns an array',
+        description: 'the codec returns an array',
         instructions: '',
-        schema: a.object({ csv: a.string() }),
-        parse: (raw) => (raw as { csv: string }).csv.split(',').map(Number),
+        schema: a.codec(a.object({ csv: a.string() }), {
+          decode: (w) => w.csv.split(',').map(Number),
+          encode: (ns: number[]) => ({ csv: ns.join(',') }),
+        }),
         call: (input) => {
-          // Type-level: `input` is `number[]`.
           type _CallArgIsNumberArray = Expect<Equal<typeof input, number[]>>;
-          return input.reduce((a, b) => a + b, 0);
+          return input.reduce((x, y) => x + y, 0);
         },
       });
-
       const ctx = {} as Context<{}, {}>;
-      const parsed = await tool.parse(ctx, JSON.stringify({ csv: '1,2,3' }));
-      expect(parsed).toEqual([1, 2, 3]);
-      const result = await tool.run([1, 2, 3], ctx);
-      expect(result).toBe(6);
+      expect(await tool.parse(ctx, JSON.stringify({ csv: '1,2,3' }))).toEqual([1, 2, 3]);
+      expect(await tool.run([1, 2, 3], ctx)).toBe(6);
     });
   });
 

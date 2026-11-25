@@ -41,7 +41,6 @@ import {
   type RequestItem,
   type RequestOptions,
 } from '@aeye/schema';
-import { boundFromZod, isZodSchema, isZodString, type ZodLike, type ZodSchemaInput } from './zod-bridge';
 import type { Message, Request, ResponseFormat, ToolDefinition } from './types';
 
 export {
@@ -81,7 +80,6 @@ export type {
   DecodedCall,
   Adjustment,
 } from '@aeye/schema';
-export { fromZod, isZodSchema, type ZodLike, type ZodSchemaInput } from './zod-bridge';
 
 /**
  * The schema of a free-text tool (`ToolDefinition.format`): the text arrives
@@ -109,34 +107,24 @@ export type RequestPlan = RenderedRequest;
 /**
  * A tool's argument schema: one static `a` instance (a schema or a bundle
  * whose dynamic step takes the ctx). `TParams` is inferred from it.
- *
- * The zod forms are a temporary bridge for @aeye/gin and @aeye/query
- * (TODO(step 2): drop `ZodSchemaInput`).
  */
-export type ToolSchema<TParams, TCtx> = Bindable<TParams, [ctx: TCtx]> | MappedSchema<TParams, [ctx: TCtx]> | ZodSchemaInput<TParams, [ctx: TCtx]>;
+export type ToolSchema<TParams, TCtx> = Bindable<TParams, [ctx: TCtx]> | MappedSchema<TParams, [ctx: TCtx]>;
 
 /**
  * A prompt's output schema: one static `a` instance whose dynamic step (if
  * any) takes `(ctx, input)`. `a.string()` (with any checks) means the answer
  * is the model's text, checked against it.
- *
- * The zod forms are a temporary bridge (TODO(step 2)); a zod function keeps
- * the old `(input, ctx)` argument order and `false` for "not applicable".
  */
 export type OutputSchema<TOutput, TCtx, TInput> =
   | Bindable<TOutput, [ctx: TCtx, input: TInput]>
-  | MappedSchema<TOutput, [ctx: TCtx, input: TInput]>
-  | ZodSchemaInput<TOutput, [input: TInput, ctx: TCtx]>;
+  | MappedSchema<TOutput, [ctx: TCtx, input: TInput]>;
 
 /**
  * A schema given to a Tool or Prompt, normalized: `bind` gives the bound
- * schema for a call, or `undefined` when a (bridged zod) function said the
- * component doesn't apply.
+ * schema for a call. ("Not here" is `applicable`, never the schema.)
  */
 export interface SchemaSource<T, A extends unknown[]> {
-  bind(...args: A): Promise<Bound<T> | undefined>;
-  /** True when the source is a bridged zod schema or function (TODO(step 2)). */
-  readonly bridged: boolean;
+  bind(...args: A): Promise<Bound<T>>;
 }
 
 const SOURCE = Symbol.for('@aeye/core.schemaSource');
@@ -157,55 +145,34 @@ export interface MappedSchema<T, A extends unknown[]> {
  * A static schema (nothing dynamic to bind) is returned as it is.
  */
 export function mapSchemaArgs<T, A extends unknown[], B extends unknown[]>(
-  schema: Bindable<T, A> | MappedSchema<T, A> | ZodSchemaInput<T, any[]>,
+  schema: Bindable<T, A> | MappedSchema<T, A>,
   map: (...args: B) => A | Promise<A>,
-  zodArgs?: (...args: A) => unknown[],
 ): MappedSchema<T, B> | Bindable<T, B> {
-  if (!isZodSchema(schema) && typeof schema !== 'function' && !(SOURCE in schema) && !(schema as { dyn?: unknown }).dyn) {
+  if (!(SOURCE in schema) && !(schema as { dyn?: unknown }).dyn) {
     return schema as unknown as Bindable<T, B>;
   }
-  const inner = schemaSource<T, A>(schema, zodArgs);
-  const source: SchemaSource<T, B> = { bridged: inner.bridged, bind: async (...args: B) => inner.bind(...await map(...args)) };
+  const inner = schemaSource<T, A>(schema);
+  const source: SchemaSource<T, B> = { bind: async (...args: B) => inner.bind(...await map(...args)) };
   return { [SOURCE]: source } as MappedSchema<T, B>;
 }
 
-/** Normalizes a Tool / Prompt schema. `zodArgs` reorders the args for the bridged zod function form. */
+/** Normalizes a Tool / Prompt schema. */
 export function schemaSource<T, A extends unknown[]>(
-  schema: Bindable<T, A> | MappedSchema<T, A> | ZodSchemaInput<T, any[]>,
-  zodArgs: (...args: A) => unknown[] = (...args) => args,
+  schema: Bindable<T, A> | MappedSchema<T, A>,
 ): SchemaSource<T, A> {
   if (typeof schema === 'object' && SOURCE in schema) {
     return (schema as MappedSchema<T, A>)[SOURCE];
   }
-  if (isZodSchema(schema)) {
-    const bound = () => boundFromZod(schema as ZodLike<T>);
-    return { bridged: true, bind: async () => bound() };
-  }
-  if (typeof schema === 'function') {
-    const fn = schema as (...args: unknown[]) => unknown;
-    return {
-      bridged: true,
-      bind: async (...args: A) => {
-        const zod = await fn(...zodArgs(...args));
-        return isZodSchema(zod) ? boundFromZod(zod as ZodLike<T>) : undefined;
-      },
-    };
-  }
   const bindable = schema as Bindable<T, A>;
-  return { bridged: false, bind: async (...args: A) => bindable.bind(...args) };
+  return { bind: async (...args: A) => bindable.bind(...args) };
 }
 
 /**
- * Whether an output schema means "answer in text": `a.string()` (a bridged
- * `z.string()` too). The text is the answer, checked against the schema.
+ * Whether an output schema means "answer in text": `a.string()`. The text
+ * is the answer, checked against the schema.
  */
 export function isTextOutput(bound: Bound<any>): boolean {
   return bound.root.kind === 'string';
-}
-
-/** A bridged zod string (TODO(step 2)). */
-export function isZodTextSchema(schema: unknown): boolean {
-  return isZodSchema(schema) && isZodString(schema);
 }
 
 // ============================================================================
