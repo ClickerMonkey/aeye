@@ -50,6 +50,25 @@ export interface Issue {
   readonly message: string;
 }
 
+/**
+ * A problem a refinement or a codec reports BELOW the value it checks, at a
+ * path relative to it in the code shape (`['fields', 2, 'name']`). The model
+ * is told it at that path; where the wire shape differs below the value (a
+ * pairs record, a tuple sent as an object) the echo falls back to a plain line.
+ */
+export interface RuleIssue {
+  readonly path: readonly PathSeg[];
+  readonly message: string;
+}
+
+/**
+ * What a codec's `decode` returns to reject a value with problems at paths
+ * below it (one `Error` is one problem at the value itself).
+ */
+export class Rejection {
+  constructor(readonly issues: readonly RuleIssue[]) {}
+}
+
 /** Allocation counters for one `parse` or `encode`. */
 export interface CopyStats {
   /** Objects allocated (records from pairs, copy-on-write clones, encoded objects). */
@@ -130,6 +149,17 @@ export class Cx {
     const issue: Issue = { path: this.wire.slice(0, this.wd), codePath: this.code.slice(0, this.cd), message };
     this.errors.push(issue);
     recordIssue(issue, { kind, node, received, candidates });
+  }
+  /** Record a problem at `rel` below the current path (code-shape segments, used for both paths). */
+  failAt(rel: readonly PathSeg[], message: string, kind: IssueKind = 'rule'): void {
+    if (!rel.length) return this.fail(message, kind);
+    if (this.countOnly) {
+      this.errors.push(COUNTED);
+      return;
+    }
+    const issue: Issue = { path: [...this.wire.slice(0, this.wd), ...rel], codePath: [...this.code.slice(0, this.cd), ...rel], message };
+    this.errors.push(issue);
+    recordIssue(issue, { kind });
   }
   enter(wire: PathSeg, code: PathSeg | null = wire): void {
     this.wire[this.wd++] = wire;
@@ -262,7 +292,13 @@ export class Node {
     for (const c of schema.checks) {
       const r = c.fn(value);
       if (r === true) continue;
-      if (Array.isArray(r)) { for (const m of r) cx.fail(m, 'rule'); continue; }
+      if (Array.isArray(r)) {
+        for (const m of r as readonly (string | RuleIssue)[]) {
+          if (typeof m === 'string') cx.fail(m, 'rule');
+          else cx.failAt(m.path, m.message, 'rule');
+        }
+        continue;
+      }
       cx.fail(typeof r === 'string' ? r : c.message ?? 'Failed a check.', 'rule');
     }
   }

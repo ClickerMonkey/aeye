@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   a, ANTHROPIC_STRICT, fromGin, GOOGLE_STRICT, LENIENT, MINIMAL, OPENAI_STRICT, PEOPLE, SchemaDefinitionError, SchemaParseError,
-  XAI_STRICT, type AnySchema, type GinTypeDef,
+  Rejection, XAI_STRICT, type AnySchema, type GinTypeDef,
 } from '../index';
 import { lines } from './_lines';
 
@@ -277,5 +277,40 @@ describe('errors', () => {
     const S = a.object({ who: a.enum(['me', 'admin']).forModels(a.enum(['me'])), secret: a.string().optional().forPeople() });
     expect(S.render(PEOPLE).parse({ who: 'admin', secret: 's' }).ok).toBe(true);
     expect(S.render(OPENAI_STRICT).parse({ who: 'admin' }).ok).toBe(false);
+  });
+});
+
+describe('problems below a value (refine / codec Rejection)', () => {
+  const Row = a.object({ name: a.string(), tags: a.array(a.string()) });
+  const Rows = a.object({ rows: a.array(Row) });
+
+  it('a refinement reports at paths below the value it checks', () => {
+    const Checked = Rows.refine((v) => v.rows.flatMap((r, i) => (r.name === 'x' ? [{ path: ['rows', i, 'name'], message: 'No x.' }] : [])));
+    const r = Checked.render(OPENAI_STRICT);
+    const bad = r.parse({ rows: [{ name: 'a', tags: [] }, { name: 'x', tags: [] }] });
+    expect(bad.ok).toBe(false);
+    expect(lines(bad)).toBe('- at rows[1].name: No x.');
+    if (!bad.ok) {
+      expect(bad.issues[0]!.codePath).toEqual(['rows', 1, 'name']);
+      expect(bad.message).toContain('^');
+    }
+  });
+
+  it('a codec rejects with problems at paths; an empty Rejection still fails; a valid value decodes', () => {
+    const Parsed = a.codec(Rows, {
+      decode: (v) => {
+        const issues = v.rows.flatMap((r, i) => r.tags.flatMap((t, j) => (t === '' ? [{ path: ['rows', i, 'tags', j], message: 'Empty tag.' }] : [])));
+        return issues.length ? new Rejection(issues) : { count: v.rows.length };
+      },
+      encode: () => ({ rows: [] }),
+    });
+    for (const p of [OPENAI_STRICT, LENIENT, ANTHROPIC_STRICT]) {
+      const r = Parsed.render(p);
+      expect(r.parse({ rows: [{ name: 'a', tags: ['b'] }] })).toMatchObject({ ok: true, value: { count: 1 } });
+      const bad = r.parse({ rows: [{ name: 'a', tags: ['b', ''] }, { name: 'c', tags: [''] }] });
+      expect(lines(bad)).toBe('- at rows[0].tags[1]: Empty tag.\n- at rows[1].tags[0]: Empty tag.');
+    }
+    const Never = a.codec(a.string(), { decode: () => new Rejection([]), encode: (v: string) => v });
+    expect(Never.render(LENIENT).parse('a').ok).toBe(false);
   });
 });

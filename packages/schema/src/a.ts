@@ -11,6 +11,7 @@ import {
   type AnySchema, type DispatchCase, type LiteralValue, type OutOf, type Shape,
 } from './schema';
 import { Module, type Defs } from './module';
+import type { Rejection } from './render';
 import type { JsonValue } from './types';
 
 export { fromJSONSchema } from './json-schema';
@@ -118,7 +119,7 @@ export const refOf = <Out>(name: string): RefType<string, Out, never> => new Ref
 /** A value the model writes as `wire` and the code holds as `Out`. */
 export const codec = <W extends AnySchema, Out>(
   wire: W,
-  codec: { decode: (wire: OutOf<W>) => Out | Error; encode: (value: Out) => OutOf<W> },
+  codec: { decode: (wire: OutOf<W>) => Out | Error | Rejection; encode: (value: Out) => OutOf<W> },
 ): CodecType<W, Out> => new CodecType(wire, codec);
 
 /** `{ tool, args }`: the arguments of one of several tools, picked by name (see `DispatchType`). */

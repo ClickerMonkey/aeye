@@ -10,7 +10,7 @@
  */
 import type { Brand, JsonValue, Loose, RefMarker, Simplify } from './types';
 import type { View, Profile } from './profile';
-import { Cx, FAILED, Printer, newStats, readJsonText, type CopyStats, type Compiler, type JsonSchema, type Node, type PathSeg, type Rendered } from './render';
+import { Cx, FAILED, Printer, Rejection, newStats, readJsonText, type CopyStats, type RuleIssue, type Compiler, type JsonSchema, type Node, type PathSeg, type Rendered } from './render';
 import { staticBundle, type Bound } from './module';
 import type { IssueKind } from './feedback';
 
@@ -30,8 +30,11 @@ export interface Meta {
 }
 
 export interface Check {
-  /** `true` passes; `false`, a message, or several messages (zod's `superRefine`) fail. */
-  readonly fn: (value: any) => boolean | string | readonly string[];
+  /**
+   * `true` passes; `false`, a message, or several (zod's `superRefine`)
+   * fail. A `{ path, message }` entry is a problem below the value.
+   */
+  readonly fn: (value: any) => boolean | string | readonly (string | RuleIssue)[];
   readonly message?: string;
   /** Show the rule to the model in the description (default true when a message is given). */
   readonly visible?: boolean;
@@ -60,7 +63,7 @@ export interface AnySchema {
   describe(text: Text): this;
   title(title: string): this;
   example(...values: any[]): this;
-  refine(fn: (value: any) => boolean | string | readonly string[], message?: string, opts?: { visible?: boolean }): this;
+  refine(fn: (value: any) => boolean | string | readonly (string | RuleIssue)[], message?: string, opts?: { visible?: boolean }): this;
 }
 /** `this` of a schema that uses no refs (so it can be bound without a chain). */
 export interface RefFree {
@@ -130,10 +133,11 @@ export abstract class Schema<Out = unknown, Refs extends string = never> {
 
   /**
    * A rule the type system can't say. Runs after decoding on the code value;
-   * the error path is where the model wrote it. With a message the rule is
+   * the error path is where the model wrote it (a `{ path, message }`
+   * entry is a problem at that path below it). With a message the rule is
    * also shown to the model (pass `{ visible: false }` to keep it quiet).
    */
-  refine(fn: (value: Loose<Out>) => boolean | string | readonly string[], message?: string, opts?: { visible?: boolean }): this {
+  refine(fn: (value: Loose<Out>) => boolean | string | readonly (string | RuleIssue)[], message?: string, opts?: { visible?: boolean }): this {
     const check: Check = { fn, ...(message !== undefined ? { message } : {}), visible: opts?.visible ?? message !== undefined };
     return this.with({ checks: [...this.checks, check] });
   }
@@ -1527,7 +1531,8 @@ export class CodecType<W extends AnySchema, Out> extends Schema<Out, RefsOf<W>> 
   readonly kind = 'codec' as const;
   constructor(
     readonly wire: W,
-    readonly codec: { readonly decode: (wire: OutOf<W>) => Out | Error; readonly encode: (value: Out) => OutOf<W> },
+    /** `decode` may reject: an `Error` (one problem here) or a `Rejection` (problems at paths below). */
+    readonly codec: { readonly decode: (wire: OutOf<W>) => Out | Error | Rejection; readonly encode: (value: Out) => OutOf<W> },
   ) { super(); }
   children() { return [this.wire]; }
   print(p: Printer) { return p.print(this.wire); }
@@ -1544,6 +1549,11 @@ export class CodecType<W extends AnySchema, Out> extends Schema<Out, RefsOf<W>> 
         if (cx.errors.length !== before) return v;
         const out = this.codec.decode(w as OutOf<W>);
         if (out instanceof Error) return fail(cx, v, out.message, 'other');
+        if (out instanceof Rejection) {
+          if (!out.issues.length) return fail(cx, v, 'Rejected.', 'rule');
+          for (const issue of out.issues) cx.failAt(issue.path, issue.message, 'rule');
+          return v;
+        }
         return out;
       },
       encode: (v, st) => inner.encode(this.codec.encode(v as Out), st),
