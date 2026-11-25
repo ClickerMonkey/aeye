@@ -1,5 +1,5 @@
 import type { TypeScope } from '../type-scope';
-import { newSlotSchema } from '../new-slot';
+import { newSlotA, newSlotSchema } from '../new-slot';
 import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
@@ -11,6 +11,7 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
@@ -320,6 +321,28 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       shape[name] = field;
     }
     return this.describeType(this.valueObject(shape, opts), opts);
+  }
+
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    const mode = opts?.includeDocs ?? 'none';
+    const shape: Record<string, AnySchema> = {};
+    for (const [name, prop] of Object.entries(this.fields)) {
+      let field = prop.type.toA(opts);
+      if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
+      shape[name] = field;
+    }
+    return this.objectA(shape, opts);
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    const mode = opts?.includeDocs ?? 'none';
+    const shape: Record<string, AnySchema> = {};
+    for (const [name, prop] of Object.entries(this.fields)) {
+      let slot = newSlotA(prop.type, opts);
+      if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
+      shape[name] = prop.type.isOptional() ? a.optional(slot) : slot;
+    }
+    return this.describeA(a.object(shape), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

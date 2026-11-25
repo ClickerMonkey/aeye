@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { createRegistry, buildSchemas } from '../index';
+import { parsers } from './_a';
 import { TupleType } from '../types/tuple';
 
 /**
@@ -44,7 +45,7 @@ describe('named tuple via Extension', () => {
     const Pair = r.extend(r.tuple([r.text(), r.num()]), { name: 'Pair' });
     r.register(Pair);
 
-    const opts = buildSchemas(r);
+    const opts = parsers(buildSchemas(r));
     // LLM can reference Pair by name.
     expect(opts.Type.safeParse({ name: 'Pair' }).success).toBe(true);
     // Nested usage: list<Pair>.

@@ -11,7 +11,13 @@ export {
 // re-derive both — the module was simply never re-exported.
 export type { JSONValue, JSONOf, RuntimeOf, EncodeOptions } from './json-type';
 export type { Node, CodeOptions, SchemaOptions } from './node';
-export { buildSchemas } from './schemas';
+export { buildZodSchemas, type ZodSchemasOverrides } from './schemas';
+export {
+  buildSchemas, ginValue, ginValueBundle, grammarDefs, grammarKey, GinGrammar, GinGrammarStatic, TypeDefSchema, ExprSchema,
+  TYPE_CLASS_NAMES, EXPR_KINDS, type BuildSchemasOverrides, type GinSchemas, type GrammarDeclared, type TypeClassName,
+} from './grammar';
+export { BUILTIN_TYPE_AIDS, typeBranchA, namedRefA, extensionA } from './grammar-parts';
+export type * as GinShapes from './grammar-types';
 export { TYPE_NAME, isTypeName } from './type-name';
 
 // Core

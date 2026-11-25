@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, buildSchemas } from '../index';
+import { createRegistry } from '../index';
+import type { ValueSchemaOptions } from '../node';
 import { Prop } from '../type';
 
 /**
@@ -19,7 +20,7 @@ describe('includeDocs option', () => {
       docs: 'a number with bounds',
       options: { min: 0, max: 100 },
     });
-    const opts = buildSchemas(r);
+    const opts: ValueSchemaOptions = {};
     const s = ranged.toValueSchema(opts);
     expect(s.description).toBeUndefined();
   });
@@ -30,7 +31,7 @@ describe('includeDocs option', () => {
       docs: 'a number with bounds',
       options: { min: 0, max: 100 },
     });
-    const opts = buildSchemas(r, {}); // fine to pass basic
+    const opts: ValueSchemaOptions = {};
     opts.includeDocs = 'type';
     const s = ranged.toValueSchema(opts);
     expect(s.description).toBe('a number with bounds');
@@ -41,7 +42,7 @@ describe('includeDocs option', () => {
       name: new Prop({ type: r.text(), docs: 'given name' }),
       age:  new Prop({ type: r.num({ min: 0, whole: true }), docs: 'age in whole years' }),
     });
-    const opts = buildSchemas(r);
+    const opts: ValueSchemaOptions = {};
     opts.includeDocs = 'all';
 
     const s = opts.includeDocs === 'all'
@@ -59,7 +60,7 @@ describe('includeDocs option', () => {
     const person = r.obj({
       name: new Prop({ type: r.text(), docs: 'given name' }),
     });
-    const opts = buildSchemas(r);
+    const opts: ValueSchemaOptions = {};
     opts.includeDocs = 'type';
     const s = person.toValueSchema(opts);
     const shape = (s as unknown as { shape: Record<string, { description?: string }> }).shape;
@@ -72,7 +73,7 @@ describe('includeDocs option', () => {
       docs: 'the user role',
     });
     const list = r.list(role);
-    const opts = buildSchemas(r);
+    const opts: ValueSchemaOptions = {};
     opts.includeDocs = 'type';
     const s = list.toValueSchema(opts);
     // Outer list has no docs, but inner element description is set.

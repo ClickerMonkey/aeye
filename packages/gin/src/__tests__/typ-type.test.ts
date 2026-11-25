@@ -1,7 +1,9 @@
 import { describe, test, expect } from 'vitest';
 import { z } from 'zod';
 import { createRegistry } from '../registry';
-import { buildSchemas } from '../schemas';
+import { buildZodSchemas } from '../schemas';
+import { buildSchemas } from '../grammar';
+import { parsers } from './_a';
 import { TypType } from '../types/typ';
 import { LocalScope } from '../type-scope';
 
@@ -125,7 +127,7 @@ describe('TypType', () => {
     // invoked with `opts`. Without opts, only the registry.like branch is
     // emitted (no inline path).
     const r = createRegistry();
-    const opts = buildSchemas(r);
+    const opts = buildZodSchemas(r);
 
     const schema = r.typ(r.num()).toValueSchema(opts);
     // Inline Extension with `extends: 'num'` — valid.
@@ -253,7 +255,7 @@ describe('TypType value schema as a tool parameter', () => {
 
   test('buildSchemas Type converts to a JSON schema (its lazies keep what they built)', () => {
     const r = createRegistry();
-    expect(() => z.toJSONSchema(buildSchemas(r).Type, { unrepresentable: 'any', io: 'input' })).not.toThrow();
+    expect(() => z.toJSONSchema(buildZodSchemas(r).Type, { unrepresentable: 'any', io: 'input' })).not.toThrow();
   });
 });
 
@@ -290,7 +292,7 @@ describe('strict new values', () => {
     const r = createRegistry();
     const Request = r.extend(r.obj({ method: r.enum(['GET', 'POST']), url: r.text(), tries: r.optional(r.num()), headers: r.list(r.text()) }), { name: 'Req' });
     r.register(Request);
-    const { Expr } = buildSchemas(r, { newStrict: true });
+    const { Expr } = parsers(buildSchemas(r, { newStrict: true }));
     const get = { kind: 'get', path: [{ prop: 'args' }, { prop: 'url' }] };
     const ok = (value: unknown) => Expr.safeParse({ kind: 'new', type: { name: 'Req' }, value }).success;
     expect(ok({ method: 'GET', url: '/repos', headers: { kind: 'new', type: { name: 'list', generic: { V: { name: 'text' } } }, value: [] } })).toBe(true);

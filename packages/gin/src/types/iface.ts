@@ -15,6 +15,7 @@ import {
   joinAuto,
 } from '../type';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
 
@@ -274,6 +275,29 @@ export class IfaceType<T = any> extends Type<T, Record<string, never>> {
       opts?.unknownKeys === 'refuse' ? this.valueObject(shape, opts) : z.object(shape).passthrough(),
       opts,
     );
+  }
+
+  /** A structural contract: at least these props (wider values satisfy it; `unknownKeys: 'refuse'` closes it). */
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    const mode = opts?.includeDocs ?? 'none';
+    const shape: Record<string, AnySchema> = {};
+    for (const [name, prop] of Object.entries(this._props)) {
+      let field = prop.type.toA(opts);
+      if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
+      shape[name] = field;
+    }
+    return this.objectA(shape, opts);
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    const mode = opts?.includeDocs ?? 'none';
+    const shape: Record<string, AnySchema> = {};
+    for (const [name, prop] of Object.entries(this._props)) {
+      let slot: AnySchema = a.ref('Expr');
+      if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
+      shape[name] = slot;
+    }
+    return this.describeA(a.object(shape), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

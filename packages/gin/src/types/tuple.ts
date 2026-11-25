@@ -10,6 +10,7 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
@@ -246,6 +247,16 @@ export class TupleType<T extends unknown[] = [any, ...any[]]> extends Type<T, Tu
     // contract.
     const elems = this.elements.map((e) => e.toValueSchema(opts));
     return this.describeType(z.tuple(elems as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts);
+  }
+
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    const elems = this.elements.map((e) => e.toA(opts));
+    return elems.length > 0 ? a.tuple(elems as [AnySchema, ...AnySchema[]]) : a.array(a.unknown()).max(0);
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    const slots: AnySchema[] = this.elements.map(() => a.ref('Expr'));
+    return this.describeA(slots.length > 0 ? a.tuple(slots as [AnySchema, ...AnySchema[]]) : a.array(a.ref('Expr')).max(0), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

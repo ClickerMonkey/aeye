@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { buildSchemas, createRegistry, isTypeName, typeClosure, typeReferences, TYPE_NAME, type TypeDef } from '../index';
+import { parsers } from './_a';
 
 /**
  * Type names may be namespaced (`fs/Entry`, `my-app/billing/Invoice`), so a
@@ -54,7 +55,7 @@ describe('qualified type names', () => {
 
   test('the extension schema an LLM writes against accepts a namespaced name', () => {
     const r = createRegistry();
-    const schema = buildSchemas(r).Type;
+    const schema = parsers(buildSchemas(r)).Type;
     expect(schema.safeParse({ name: 'shop/Product', extends: 'obj', props: {} }).success).toBe(true);
     expect(schema.safeParse({ name: 'shop Product', extends: 'obj', props: {} }).success).toBe(false);
   });

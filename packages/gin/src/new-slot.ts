@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
+import type { ValueSchemaOptions } from './node';
 import type { SchemaOptions } from './node';
 import type { Type } from './type';
 
@@ -27,6 +29,13 @@ export function isPlainSlot(type: Type): boolean {
  * strict tool call can write a constant directly instead of wrapping it in a `new`. The field's optionality is the
  * caller's; this is the schema of a present value.
  */
+export function newSlotA(type: Type, opts?: ValueSchemaOptions): AnySchema {
+  const present = type.isOptional() ? ((type as { inner?: Type }).inner ?? type) : type;
+  if (!isPlainSlot(present)) return a.ref('Expr');
+  return a.union([present.toA(opts), a.ref('Expr')]);
+}
+
+/** `newSlotA`'s zod twin (the deprecated zod grammar). */
 export function newSlotSchema(type: Type, opts: SchemaOptions): z.ZodTypeAny {
   const present = type.isOptional() ? ((type as { inner?: Type }).inner ?? type) : type;
   if (!isPlainSlot(present)) return opts.Expr;

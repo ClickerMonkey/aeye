@@ -7,6 +7,7 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, JSONValue, RuntimeOf } from '../json-type';
 
@@ -171,6 +172,10 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toValueSchema(opts).optional(), opts);
   }
+
+  valueA(opts?: ValueSchemaOptions): AnySchema { return a.optional(this.inner.toA(opts)); }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema { return this.describeA(a.optional(this.inner.toNewA(opts)), opts); }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toNewSchema(opts).optional(), opts, 'NewValue_');

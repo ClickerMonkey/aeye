@@ -18,7 +18,11 @@ import type { Scope } from '../scope';
 import type { EncodeOptions } from '../json-type';
 import type { TypeScope } from '../type-scope';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+
+/** Overlay names being resolved by `valueA` / `toNewA` right now (a recursive overlay type stops at itself). */
+const RESOLVING = new Set<string>();
 
 
 export interface AliasOptions {
@@ -263,6 +267,36 @@ export class AliasType<T = any> extends Type<T, AliasOptions> {
       const t = this.resolve(opts?.scope);
       return t ? t.toValueSchema(opts) : z.any();
     }), opts);
+  }
+
+  /**
+   * The resolved target's schema (through `opts.scope` first, as every
+   * value-side op). A name that resolves to nothing takes any value; a name
+   * met again inside its own definition (a recursive overlay type: only
+   * registered names are module refs) is any JSON, checked by gin.
+   */
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    const t = this.resolve(opts?.scope);
+    if (!t) return a.unknown();
+    if (RESOLVING.has(this.options.name)) return a.json().describe(`A value of the named type ${this.options.name}.`);
+    RESOLVING.add(this.options.name);
+    try {
+      return t.toA(opts);
+    } finally {
+      RESOLVING.delete(this.options.name);
+    }
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    const t = this.resolve(opts?.scope);
+    if (!t) return a.unknown();
+    if (RESOLVING.has(this.options.name)) return a.ref('Expr');
+    RESOLVING.add(this.options.name);
+    try {
+      return t.toNewA(opts);
+    } finally {
+      RESOLVING.delete(this.options.name);
+    }
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

@@ -9,6 +9,7 @@ import type { EncodeOptions } from '../json-type';
 import { ObjType } from './obj';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -305,6 +306,19 @@ export class AndType<T = any> extends Type<T, AndOptions> {
       .map((p) => p.toValueSchema(opts))
       .reduce((a, b) => z.intersection(a, b));
     return this.describeType(s, opts);
+  }
+
+  /** Object parts merge into one object (every dialect can say that); others are checked in turn. */
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    if (this.parts.length === 0) return a.unknown();
+    if (this.parts.length === 1) return this.parts[0]!.toA(opts);
+    return a.intersection(this.parts.map((p) => p.toA(opts)) as [AnySchema, ...AnySchema[]]);
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    if (this.parts.length === 0) return this.describeA(a.unknown(), opts);
+    if (this.parts.length === 1) return this.describeA(this.parts[0]!.toNewA(opts), opts);
+    return this.describeA(a.intersection(this.parts.map((p) => p.toNewA(opts)) as [AnySchema, ...AnySchema[]]), opts);
   }
 
   /** And's instance schema = intersection of each part's instance schema. */

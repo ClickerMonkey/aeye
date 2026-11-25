@@ -1,12 +1,14 @@
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { TypeDef } from '../schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
 import { extensionSchemaNarrowed, schemaBag } from '../schemas';
 import { TYPE_NAME } from '../type-name';
+import { extensionA, namedRefA, typeBranchA } from '../grammar-parts';
 
 
 /**
@@ -191,6 +193,37 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     });
     return this.describeType(schema, opts);
   }
+
+  /**
+   * A typ value IS a TypeDef: `a.ref('TypeDef')` from the grammar module
+   * when unconstrained; else the TypeDef branches whose type fits the
+   * constraint (classes, named types, a named type by name, an inline
+   * Extension of a fitting base). Either way the def must then parse.
+   */
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    const compatible = this.registry.compatible(this.constraint);
+    if (compatible.length === 0 && this.constraint.name !== 'any') return a.never();
+    let shape: AnySchema;
+    if (this.constraint.name === 'any') {
+      shape = a.ref('TypeDef');
+    } else {
+      const branches: AnySchema[] = compatible.map((t) => typeBranchA(this.registry, t.name));
+      branches.push(namedRefA());
+      branches.push(extensionA(compatible.map((t) => t.name)));
+      shape = a.union(branches)
+        .describe(`A gin type definition ({ "name": ..., ... }) whose type fits ${this.constraint.toCode()}.`);
+    }
+    return shape.refine((value: unknown) => {
+      try {
+        this.parse(value, opts?.scope);
+        return true;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    });
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema { return this.describeA(this.toA(opts), opts); }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(this.toValueSchema(opts), opts, 'NewValue_');

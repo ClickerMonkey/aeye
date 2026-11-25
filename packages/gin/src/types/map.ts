@@ -10,6 +10,7 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, JSONValue } from '../json-type';
 
@@ -268,6 +269,20 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
       key: this.key.toValueSchema(opts),
       value: this.value.toValueSchema(opts),
     }, opts)), opts);
+  }
+
+  /**
+   * A text-keyed map is a RECORD in the code shape (a model that can't write
+   * open objects is shown `[{key, value}]` pairs by the renderer); any other
+   * key type is a list of `{key, value}` entries.
+   */
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    if (this.key.name === 'text') return a.record(this.value.toA(opts));
+    return a.array(this.objectA({ key: this.key.toA(opts), value: this.value.toA(opts) }, opts));
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    return this.describeA(a.array(a.object({ key: a.ref('Expr'), value: a.ref('Expr') })), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

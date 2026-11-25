@@ -7,6 +7,7 @@ import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../t
 import type { DateOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -158,6 +159,11 @@ export class DateType extends Type<Date, DateOptions> {
       z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date'),
       opts,
     );
+  }
+
+  /** An ISO date PREFIX, as `toValueSchema` (a datetime passes too). */
+  valueA(): AnySchema {
+    return a.string().pattern('^\\d{4}-\\d{2}-\\d{2}').describe('An ISO 8601 date (YYYY-MM-DD).');
   }
 
   /** Narrow-match: accept date TypeDef whose bounds are strictly tighter. */

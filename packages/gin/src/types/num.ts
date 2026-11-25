@@ -7,6 +7,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -273,6 +274,13 @@ export class NumType extends Type<number, NumOptions> {
     if (this.options.min !== undefined) s = s.min(this.options.min);
     if (this.options.max !== undefined) s = s.max(this.options.max);
     return this.describeType(s, opts);
+  }
+
+  valueA(): AnySchema {
+    let s = this.options.whole ? a.int() : a.number();
+    if (this.options.min !== undefined) s = s.min(this.options.min);
+    if (this.options.max !== undefined) s = s.max(this.options.max);
+    return s;
   }
 
   /** Narrow-match: accept a num TypeDef whose options are strictly tighter

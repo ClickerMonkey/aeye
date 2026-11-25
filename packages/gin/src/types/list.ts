@@ -12,6 +12,7 @@ import type { Scope } from '../scope';
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, JSONValue } from '../json-type';
 
@@ -276,6 +277,20 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
     return this.describeType(s, opts);
+  }
+
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    let s = a.array(this.item.toA(opts));
+    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
+    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
+    return s;
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    let s = a.array(a.ref('Expr'));
+    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
+    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
+    return this.describeA(s, opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

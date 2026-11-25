@@ -13,6 +13,7 @@ import { ReturnSignal } from './flow-control';
 import type { Scope } from './scope';
 import type { EncodeOptions, JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { SchemaOptions, ValueSchemaOptions } from './node';
 import { Effects } from './effects';
 import { typeClosure, typeReferences, type TypeClosure, type TypeReferences } from './refs';
@@ -1384,6 +1385,80 @@ export abstract class Type<T = any, O = any> implements Node {
       return this.describeType(init.args.toValueSchema(opts), opts, 'NewValue_');
     }
     return this.toValueSchema(opts);
+  }
+
+  // ─── VALUE SCHEMA (`a`) ─────────────────────────────────────────────────
+
+  /**
+   * The schema of a VALUE of this type, as an `@aeye/schema` (`a`) schema:
+   * what a model writes when asked for one (tool args, a prompt's output),
+   * rendered per model and decoded back into the code shape. Mirrors
+   * `toValueSchema` value-for-value, except that a `map<text, V>` is a
+   * record in the code shape (pairs are a rendering choice) and a
+   * registered named type is `a.ref(name)`, defined once by the grammar
+   * module (`GinGrammar`). A `typ` value is `a.ref('TypeDef')`, a `fn`
+   * value `a.ref('Expr')`; bind with `ginValue(type)` (or compose with
+   * `GinGrammar.result(...)`).
+   *
+   * Opts: `includeDocs`, `scope`, `unknownKeys` (`'refuse'` makes object
+   * shapes strict) as for `toValueSchema`.
+   */
+  toA(opts?: ValueSchemaOptions): AnySchema {
+    if (this.isRegisteredNamed()) return a.ref(this.name);
+    return this.defineA(opts);
+  }
+
+  /**
+   * This type's own value schema, never a ref to itself (what a named
+   * type's definition in the grammar module is). Children are `toA`.
+   */
+  defineA(opts?: ValueSchemaOptions): AnySchema {
+    return this.describeA(this.valueA(opts), opts);
+  }
+
+  /**
+   * The shape of a value of this type (each class's mapping; docs and
+   * constraints are added by `describeA`). A third-party class that
+   * doesn't override it takes any JSON value.
+   */
+  valueA(_opts?: ValueSchemaOptions): AnySchema {
+    return a.unknown();
+  }
+
+  /**
+   * The schema of the VALUE slot of a `{ kind: 'new' }` of this type, as
+   * `a` (mirrors `toNewSchema`): the constructor's args when the type has
+   * an `init`, else the value schema; composites take Expr slots
+   * (`a.ref('Expr')`).
+   */
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    const init = this.init(opts?.scope);
+    if (init) return this.describeA(init.args.toA(opts), opts);
+    return this.toA(opts);
+  }
+
+  /** Whether this instance IS the registry's named type of its name (so a value of it is a ref). */
+  protected isRegisteredNamed(): boolean {
+    const registry = this.registry;
+    return registry.typeClass(this.name) === undefined && registry.namedTypeList().includes(this);
+  }
+
+  /** An object value shape honouring `opts.unknownKeys` (`'refuse'` → strict). */
+  protected objectA(shape: Record<string, AnySchema>, opts?: ValueSchemaOptions): AnySchema {
+    const o = a.object(shape);
+    return opts?.unknownKeys === 'refuse' ? o.strict() : o;
+  }
+
+  /** `describeType` for `a`: the docs (per `includeDocs`) and constraints as the description. */
+  protected describeA(schema: AnySchema, opts?: ValueSchemaOptions): AnySchema {
+    const mode = opts?.includeDocs ?? 'none';
+    const parts: string[] = [];
+    if (mode !== 'none' && this.docs) parts.push(this.docs);
+    const cs = this.constraints();
+    if (cs.length > 0) {
+      parts.push(cs.map((c) => `must satisfy ${c.toCode(this.registry, { expectsValue: true })}`).join('; '));
+    }
+    return parts.length > 0 ? schema.describe(parts.join(' — ')) : schema;
   }
 
   /**

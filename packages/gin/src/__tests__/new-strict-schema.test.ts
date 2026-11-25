@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'vitest';
-import { fromZod, getProfile } from '@aeye/core';
-import { createRegistry, buildSchemas } from '../index';
-import { NewExpr } from '../exprs/new';
+import { OPENAI_STRICT } from '@aeye/schema';
+import { createRegistry, GinGrammar } from '../index';
+import { asParser } from './_a';
 
 /**
- * When `newStrict: true`, `NewExpr.toSchema(opts)` produces a union over
+ * When `newStrict: true`, the grammar's `Expr_new` (`GinGrammar`) is a union over
  * every type the LLM could legitimately construct:
  *
  *   ({ kind:'new', type:{name:'Pair'},                        value:[…pair elements…] }
@@ -26,14 +26,9 @@ describe('NewExpr strict schema — full registry + custom types', () => {
     });
     r.register(Pair);
 
-    // Build the full NewExpr schema via the static class method —
-    // this is the exact Zod the LLM would be given.
-    const opts = buildSchemas(r, { newStrict: true });
-    const newSchema = NewExpr.toSchema(opts);
-
-    // Render it as core now sends it to an OpenAI strict model: through core's
-    // temporary zod bridge into @aeye/schema (gin produces `a` in step 2).
-    const jsonSchema = fromZod(newSchema).bind().render(getProfile('openai-strict')!).jsonSchema;
+    // The grammar's `new` expression, bound for this registry with `newStrict`,
+    // rendered as an OpenAI strict model gets it.
+    const jsonSchema = GinGrammar.result('Expr_new').bind(r, { newStrict: true }).render(OPENAI_STRICT).jsonSchema;
 
     // --- THE BARF ---
     // Stringify with indentation so we can see the full shape.
@@ -75,8 +70,7 @@ describe('NewExpr strict schema — full registry + custom types', () => {
     const r = createRegistry();
     const Pair = r.extend(r.tuple([r.text(), r.num()]), { name: 'Pair' });
     r.register(Pair);
-    const opts = buildSchemas(r, { newStrict: true });
-    const newSchema = NewExpr.toSchema(opts);
+    const newSchema = asParser(GinGrammar.result('Expr_new').bind(r, { newStrict: true }));
 
     // Named reference to Pair + inner News for each positional element.
     expect(newSchema.safeParse({

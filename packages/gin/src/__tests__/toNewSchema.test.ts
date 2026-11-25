@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, buildSchemas } from '../index';
+import { createRegistry, GinGrammar } from '../index';
+import { asParser } from './_a';
 
 /**
  * `Type.toNewSchema(opts)` describes the VALUE side of a `{ kind: 'new' }`
@@ -12,16 +13,16 @@ import { createRegistry, buildSchemas } from '../index';
 
 describe('Type.toNewSchema', () => {
   const r = createRegistry();
-  const opts = buildSchemas(r);
+  const nw = (type: { toNewA(): import('@aeye/schema').AnySchema }) => asParser(type.toNewA(), r);
 
   test('primitives match their value schema', () => {
-    expect(r.num().toNewSchema(opts).safeParse(42).success).toBe(true);
-    expect(r.num().toNewSchema(opts).safeParse('x').success).toBe(false);
-    expect(r.text().toNewSchema(opts).safeParse('hi').success).toBe(true);
+    expect(nw(r.num()).safeParse(42).success).toBe(true);
+    expect(nw(r.num()).safeParse('x').success).toBe(false);
+    expect(nw(r.text()).safeParse('hi').success).toBe(true);
   });
 
   test('list<V> → array of Expr', () => {
-    const s = r.list(r.num()).toNewSchema(opts);
+    const s = nw(r.list(r.num()));
     // Each element should be a valid Expr (not a bare number).
     expect(s.safeParse([
       { kind: 'new', type: { name: 'num' }, value: 1 },
@@ -36,7 +37,7 @@ describe('Type.toNewSchema', () => {
       x: { type: r.num() },
       y: { type: r.text() },
     });
-    const s = t.toNewSchema(opts);
+    const s = nw(t);
     expect(s.safeParse({
       x: { kind: 'new', type: { name: 'num' }, value: 5 },
       y: { kind: 'new', type: { name: 'text' }, value: 'hi' },
@@ -47,7 +48,7 @@ describe('Type.toNewSchema', () => {
   });
 
   test('map → array of {key: Expr, value: Expr}', () => {
-    const s = r.map(r.text(), r.num()).toNewSchema(opts);
+    const s = nw(r.map(r.text(), r.num()));
     expect(s.safeParse([{
       key: { kind: 'new', type: { name: 'text' }, value: 'a' },
       value: { kind: 'new', type: { name: 'num' }, value: 1 },
@@ -58,8 +59,8 @@ describe('Type.toNewSchema', () => {
 
   test('Extension delegates to base', () => {
     const ranged = r.extend('num', { name: 'ranged', options: { min: 0 } });
-    expect(ranged.toNewSchema(opts).safeParse(5).success).toBe(true);
-    expect(ranged.toNewSchema(opts).safeParse('x').success).toBe(false);
+    expect(nw(ranged).safeParse(5).success).toBe(true);
+    expect(nw(ranged).safeParse('x').success).toBe(false);
   });
 });
 
@@ -81,9 +82,8 @@ describe('NewExpr.toSchema strict mode', () => {
   const r = createRegistry();
 
   test('non-strict: accepts any TypeDef + any value', () => {
-    const opts = buildSchemas(r);
     // Use the registry's schema directly; register a parseable shape.
-    const newSchema = r.exprClass('new')!.toSchema(opts);
+    const newSchema = asParser(GinGrammar.result('Expr_new').bind(r));
     expect(newSchema.safeParse({
       kind: 'new', type: { name: 'num' }, value: 42,
     }).success).toBe(true);
@@ -98,8 +98,7 @@ describe('NewExpr.toSchema strict mode', () => {
     // Bool is a built-in class → its branch is always present.
     const numT = r.num();
     const textT = r.text();
-    const opts = buildSchemas(r, { types: [numT, textT], newStrict: true });
-    const newSchema = r.exprClass('new')!.toSchema(opts);
+    const newSchema = asParser(GinGrammar.result('Expr_new').bind(r, { types: [numT, textT], newStrict: true }));
 
     // num (named instance branch OR num class branch) — accepted.
     expect(newSchema.safeParse({
@@ -135,8 +134,7 @@ describe('NewExpr.toSchema strict mode', () => {
     }), { name: 'Person' });
     r.register(personT);
 
-    const opts = buildSchemas(r, { newStrict: true });
-    const newSchema = r.exprClass('new')!.toSchema(opts);
+    const newSchema = asParser(GinGrammar.result('Expr_new').bind(r, { newStrict: true }));
 
     // Correctly-shaped Person — each field is a New Expr of the field type.
     expect(newSchema.safeParse({

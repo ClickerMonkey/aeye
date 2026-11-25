@@ -5,6 +5,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -97,6 +98,8 @@ export class NullType extends Type<null, Record<string, never>> {
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'null'; }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
+
+  valueA(): AnySchema { return a.null(); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('null') }).passthrough();

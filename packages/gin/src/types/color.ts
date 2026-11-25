@@ -7,6 +7,7 @@ import { type CompatOptions, Init, type Prop, type Rnd, Type, optionsCode } from
 import type { ColorOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -143,6 +144,12 @@ export class ColorType extends Type<number, ColorOptions> {
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is a 32-bit integer (0xRRGGBBAA or 0xRRGGBB depending on hasAlpha).
     return this.describeType(z.number().int().min(0).max(0xffffffff), opts);
+  }
+
+  /** Dumped as a 32-bit integer. */
+  valueA(): AnySchema {
+    return a.int().min(0).max(0xffffffff)
+      .describe(this.options.hasAlpha ? 'A color as a 32-bit integer 0xRRGGBBAA.' : 'A color as an integer 0xRRGGBB.');
   }
 
   toInstanceSchema(): z.ZodTypeAny {

@@ -5,6 +5,7 @@ import { Value } from '../value';
 import { type CompatOptions, indentOf, joinAuto, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
@@ -177,6 +178,12 @@ export class EnumType<V = any, B = V> extends Type<V, EnumOptions<V>> {
       z.enum(this.options.values as Record<string, string | number>),
       opts,
     );
+  }
+
+  valueA(): AnySchema {
+    const values = Object.values(this.options.values as Record<string, unknown>);
+    if (values.length > 0 && values.every((v) => typeof v === 'string')) return a.enum(values as string[]);
+    return a.union(values.map((v) => a.literal(v as string | number)));
   }
 
   toInstanceSchema(): z.ZodTypeAny {

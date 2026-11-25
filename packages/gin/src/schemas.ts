@@ -6,6 +6,10 @@ import type { Expr } from './expr';
 import type { Type } from './type';
 
 /**
+ * DEPRECATED: the zod twin of the grammar (grammar.ts). Nothing model-facing
+ * uses it; it backs `Type.toValueSchema` (gin's own value checks and the
+ * harness's zod-gin until it moves to `a`, step 3), then goes.
+ *
  * TypeDef/ExprDef Zod schemas.
  *
  * Every Type class and Expr class has a `static toSchema(opts): z.ZodTypeAny`
@@ -180,7 +184,7 @@ export function extensionSchemaNarrowed(
  * the specific instances available to LLM consumers; `newStrict` locks
  * NewExpr's schema to a union over `types`.
  */
-export interface BuildSchemasOverrides {
+export interface ZodSchemasOverrides {
   types?: Type[];
   exprs?: Expr[];
   newStrict?: boolean;
@@ -196,7 +200,8 @@ export interface BuildSchemasOverrides {
  * Registry knows about. Pass the pair to any `cls.toSchema(opts)` call;
  * the returned schemas are lazy, so recursion resolves on-demand.
  */
-export function buildSchemas(registry: Registry, overrides: BuildSchemasOverrides = {}): SchemaOptions {
+/** @deprecated The zod grammar; models get `buildSchemas` / `GinGrammar` (`a`). Kept for `toValueSchema` until the harness moves. */
+export function buildZodSchemas(registry: Registry, overrides: ZodSchemasOverrides = {}): SchemaOptions {
   const opts: SchemaOptions = {
     Type: null as unknown as z.ZodTypeAny,
     Expr: null as unknown as z.ZodTypeAny,
@@ -265,7 +270,7 @@ export function schemaBag(registry: Registry, opts?: { Type?: z.ZodTypeAny; Expr
   if (opts?.Type !== undefined && opts.Expr !== undefined && opts.registry !== undefined) return opts as SchemaOptions;
   let bag = bags.get(registry);
   if (bag === undefined) {
-    bag = buildSchemas(registry, { namedRefs: true });
+    bag = buildZodSchemas(registry, { namedRefs: true });
     bags.set(registry, bag);
   }
   return bag;

@@ -7,6 +7,7 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
@@ -162,6 +163,10 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toValueSchema(opts).nullable(), opts);
   }
+
+  valueA(opts?: ValueSchemaOptions): AnySchema { return a.nullable(this.inner.toA(opts)); }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema { return this.describeA(a.nullable(this.inner.toNewA(opts)), opts); }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toNewSchema(opts).nullable(), opts, 'NewValue_');

@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { createRegistry, buildSchemas } from '../index';
+import { parsers } from './_a';
 
 /**
  * `buildSchemas` folds registered named types (and explicit `opts.types`)
@@ -18,7 +19,7 @@ describe('buildSchemas: named user types', () => {
     });
     r.register(Task);
 
-    const opts = buildSchemas(r);
+    const opts = parsers(buildSchemas(r));
 
     // Name-only reference — resolves via registered lookup at parse time.
     expect(opts.Type.safeParse({ name: 'Task' }).success).toBe(true);
@@ -44,7 +45,7 @@ describe('buildSchemas: named user types', () => {
       props: { y: { type: r.text() } },
     });
 
-    const opts = buildSchemas(r, { types: [A2] });
+    const opts = parsers(buildSchemas(r, { types: [A2] }));
     // Either variant still matches by name alone (passthrough on options/props).
     expect(opts.Type.safeParse({ name: 'A' }).success).toBe(true);
 
@@ -66,7 +67,7 @@ describe('buildSchemas: named user types', () => {
     });
     r.register(Task);
 
-    const opts = buildSchemas(r);
+    const opts = parsers(buildSchemas(r));
 
     // Simulate an LLM-produced list-of-Task TypeDef.
     const listOfTasks = {
@@ -90,7 +91,7 @@ describe('buildSchemas: named user types', () => {
       name: 'OrphanTask',
       props: { title: { type: r.text() } },
     });
-    const opts = buildSchemas(r);
+    const opts = parsers(buildSchemas(r));
     // No instance branch, and the class branches match by exact name literal
     // (`num`, `object`, etc.), so ad-hoc extensions are not representable.
     expect(opts.Type.safeParse({ name: 'OrphanTask' }).success).toBe(false);
@@ -100,7 +101,7 @@ describe('buildSchemas: named user types', () => {
       props: { title: { type: r.text() } },
     });
     r.register(sibling);
-    const opts2 = buildSchemas(r);
+    const opts2 = parsers(buildSchemas(r));
     expect(opts2.Type.safeParse({ name: 'RegisteredTask' }).success).toBe(true);
   });
 });

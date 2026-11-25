@@ -6,6 +6,7 @@ import { Call, type CompatOptions, GetSet, type Prop, type PropSpec, type Rnd, T
 import type { EncodeOptions } from '../json-type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -217,6 +218,18 @@ export class OrType<T = any> extends Type<T, OrOptions> {
     if (this.variants.length === 1) return this.describeType(this.variants[0]!.toValueSchema(opts), opts);
     const schemas = this.variants.map((v) => v.toValueSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
     return this.describeType(z.union(schemas), opts);
+  }
+
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    if (this.variants.length === 0) return a.never();
+    if (this.variants.length === 1) return this.variants[0]!.toA(opts);
+    return a.union(this.variants.map((v) => v.toA(opts)));
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    if (this.variants.length === 0) return this.describeA(a.never(), opts);
+    if (this.variants.length === 1) return this.describeA(this.variants[0]!.toNewA(opts), opts);
+    return this.describeA(a.union(this.variants.map((v) => v.toNewA(opts))), opts);
   }
 
   /** Or's instance schema = union of each variant's instance schema. Makes

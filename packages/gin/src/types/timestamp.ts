@@ -7,6 +7,7 @@ import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../t
 import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -136,6 +137,12 @@ export class TimestampType extends Type<Date, TimestampOptions> {
       /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/,
       'expected ISO 8601 timestamp',
     ), opts);
+  }
+
+  valueA(): AnySchema {
+    return a.string()
+      .pattern('^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:?\\d{2})?$')
+      .describe('An ISO 8601 timestamp (YYYY-MM-DD HH:MM[:SS][Z]).');
   }
 
   toInstanceSchema(): z.ZodTypeAny {

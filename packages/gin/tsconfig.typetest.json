@@ -2,7 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
+    "rootDir": "..",
+    "baseUrl": ".",
+    "paths": { "@aeye/schema": ["../schema/src/index.ts"] },
     "declaration": false,
     "declarationMap": false
   },
@@ -10,6 +12,7 @@
   "exclude": ["node_modules", "dist", "src/__tests__/**"],
   "files": [
     "src/__tests__/builder-inference.test.ts",
-    "src/__tests__/refs.test.ts"
+    "src/__tests__/refs.test.ts",
+    "src/__tests__/grammar.types.ts"
   ]
 }

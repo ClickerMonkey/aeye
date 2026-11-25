@@ -5,6 +5,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
@@ -163,6 +164,8 @@ export class LiteralType<T = any, B = T> extends Type<T, LiteralOptions<T>> {
       opts,
     );
   }
+
+  valueA(): AnySchema { return a.literal(this.literal as string | number | boolean | null); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({

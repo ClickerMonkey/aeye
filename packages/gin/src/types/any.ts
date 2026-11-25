@@ -5,6 +5,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -107,6 +108,8 @@ export class AnyType extends Type<any, Record<string, never>> {
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'any'; }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.any(), opts); }
+
+  valueA(): AnySchema { return a.unknown(); }
 
   /** An instance of `any` is any TypeDef — only requires a `name: string`. */
   toInstanceSchema(): z.ZodTypeAny {

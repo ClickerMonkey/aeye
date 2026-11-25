@@ -17,6 +17,8 @@ export default defineConfig({
       '@aeye/core': resolve(__dirname, '../core/src/index.ts'),
       // core's source imports @aeye/schema, whose dist isn't built yet.
       '@aeye/schema': resolve(__dirname, '../schema/src/index.ts'),
+      // The shared corpus fixtures (packages/schema/src/__tests__/corpus) import gin by name: this source.
+      '@aeye/gin': resolve(__dirname, 'src/index.ts'),
     },
   },
 });

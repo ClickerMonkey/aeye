@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { createRegistry, buildSchemas } from '../index';
+import { parsers } from './_a';
 
 /**
  * Every Type class and Expr class exposes a static toSchema(opts) that
@@ -12,7 +13,7 @@ import { createRegistry, buildSchemas } from '../index';
 
 describe('toSchema / buildSchemas', () => {
   const r = createRegistry();
-  const { Type, Expr } = buildSchemas(r);
+  const { Type, Expr } = parsers(buildSchemas(r));
 
   test('primitive TypeDefs parse', () => {
     expect(() => Type.parse({ name: 'num' })).not.toThrow();

@@ -4,6 +4,7 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -123,6 +124,9 @@ export class DurationType extends Type<number, Record<string, never>> {
     // Dump form is a number of milliseconds.
     return this.describeType(z.number(), opts);
   }
+
+  /** Dumped as milliseconds. */
+  valueA(): AnySchema { return a.number().describe('A duration in milliseconds.'); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('duration') }).passthrough();

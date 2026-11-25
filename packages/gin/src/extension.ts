@@ -1,5 +1,6 @@
 import { defined } from './defined';
-import { newSlotSchema } from './new-slot';
+import { newSlotA, newSlotSchema } from './new-slot';
+import { a, ObjectType, type AnySchema } from '@aeye/schema';
 import type { Registry, TypeAugmentation } from './registry';
 import { LocalScope, type TypeScope } from './type-scope';
 import type { PropDef, TypeDef } from './schema';
@@ -745,6 +746,27 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     let schema = this.base.toValueSchema(opts);
     schema = this.mergeLocalPropsInto(schema, opts, (p) => p.type.toValueSchema(opts));
     return this.describeType(schema, opts);
+  }
+
+  /** The base's own shape with the stored local props added (an object-shaped base), per `toValueSchema`. */
+  valueA(opts?: ValueSchemaOptions): AnySchema {
+    return this.mergeLocalPropsA(this.base.defineA(opts), opts, (p) => p.type.toA(opts));
+  }
+
+  toNewA(opts?: ValueSchemaOptions): AnySchema {
+    return this.describeA(this.mergeLocalPropsA(this.base.toNewA(opts), opts, (p) => newSlotA(p.type, opts)), opts);
+  }
+
+  private mergeLocalPropsA(schema: AnySchema, opts: ValueSchemaOptions | undefined, slotFor: (prop: Prop) => AnySchema): AnySchema {
+    if (!(schema instanceof ObjectType)) return schema;
+    const mode = opts?.includeDocs ?? 'none';
+    const extra: Record<string, AnySchema> = {};
+    for (const [name, p] of this.storedLocalProps()) {
+      let slot = slotFor(p);
+      if (mode === 'all' && p.docs) slot = slot.describe(p.docs);
+      extra[name] = p.type.isOptional() && slot.kind !== 'optional' ? a.optional(slot) : slot;
+    }
+    return Object.keys(extra).length === 0 ? schema : (schema as ObjectType<any>).extend(extra);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

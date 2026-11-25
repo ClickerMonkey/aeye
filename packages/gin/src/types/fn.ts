@@ -7,6 +7,7 @@ import type { FnValue } from '../infer';
 import type { JSONOf, RuntimeOf } from '../json-type';
 import { LocalScope, type TypeScope } from '../type-scope';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, schemaBag } from '../schemas';
 
@@ -246,6 +247,9 @@ export class FnType<A extends object = any, R = any, E = any> extends Type<FnVal
     const bag = schemaBag(this.registry, opts);
     return this.describeType(z.union([z.string(), bag.Expr]), opts);
   }
+
+  /** A fn value: a function's name, or a program (`Expr`, from the grammar module). */
+  valueA(): AnySchema { return a.union([a.string(), a.ref('Expr')]); }
 
   toInstanceSchema(): z.ZodTypeAny {
     const callShape: Record<string, z.ZodTypeAny> = {

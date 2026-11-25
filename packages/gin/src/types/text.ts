@@ -7,6 +7,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { TextOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -228,6 +229,14 @@ export class TextType extends Type<string, TextOptions> {
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
     if (this.options.pattern) s = s.regex(new RegExp(this.options.pattern, this.options.flags));
     return this.describeType(s, opts);
+  }
+
+  valueA(): AnySchema {
+    let s = a.string();
+    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
+    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
+    if (this.options.pattern) s = s.pattern(this.options.pattern, this.options.flags);
+    return s;
   }
 
   /** Narrow-match: accept a text TypeDef whose options are strictly tighter. */

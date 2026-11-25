@@ -19,6 +19,7 @@ import { didYouMean } from './aids';
 import { checkWireKeys } from './wire';
 import { TYPE_NAME, isTypeName } from './type-name';
 import type { z } from 'zod';
+import type { AnySchema } from '@aeye/schema';
 
 import { AnyType } from './types/any';
 import { AndType } from './types/and';
@@ -121,6 +122,15 @@ export interface TypeClass {
    * fields) go through a named-instance branch instead.
    */
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny;
+  /**
+   * This class's TypeDef branch as an `a` schema, for a class registered
+   * beyond the built-ins (whose branches are the grammar's own defs). Refs
+   * `TypeDef` / `Expr` / `PropDef` / … resolve in the grammar module.
+   * Without it the branch is a loose `{ name }` object.
+   */
+  toA?(): AnySchema;
+  /** The class-level `new` value as `a` (a `newStrict` branch); default any value. */
+  toNewA?(): AnySchema;
 }
 
 /** TypeDef fields that, unless `consumes`-d by the class, force Extension. */
@@ -182,6 +192,14 @@ export class Registry implements TypeBuilder, TypeScope {
   private readonly nativeEffectsMap = new Map<string, Effects>();
   private readonly exprClasses = new Map<string, ExprClass>();
   private readonly augments = new Map<string, TypeAugmentation>();
+  private _version = 0;
+
+  /**
+   * Bumped whenever what a model-facing schema depends on changes: a type
+   * class, named type, expr class or augmentation registered. The grammar's
+   * bind cache (`GinGrammar`, `buildSchemas`) is keyed by it.
+   */
+  get version(): number { return this._version; }
 
   // ─── SCOPE INTERFACE ─────────────────────────────────────────────────────
   /** Registry IS the root scope. */
@@ -193,6 +211,7 @@ export class Registry implements TypeBuilder, TypeScope {
   /** Register a built-in Type class for JSON parse dispatch. */
   define(cls: TypeClass): this {
     this.classes.set(cls.NAME, cls);
+    this._version++;
     return this;
   }
 
@@ -210,6 +229,7 @@ export class Registry implements TypeBuilder, TypeScope {
    */
   register(type: Type): this {
     this.namedTypes.set(type.name, type);
+    this._version++;
     return this;
   }
 
@@ -284,6 +304,7 @@ export class Registry implements TypeBuilder, TypeScope {
    * that had to change.
    */
   augment(name: string, addition: TypeAugmentation): this {
+    this._version++;
     // Normalize each field through the class `.from()` factories so
     // loosely-typed callers passing ExprDef literals in get/set/loop/run
     // end up with parsed Exprs in storage. Idempotent for
@@ -383,6 +404,7 @@ export class Registry implements TypeBuilder, TypeScope {
   /** Register an Expr class (one per ExprDef.kind). */
   defineExpr(cls: ExprClass): this {
     this.exprClasses.set(cls.KIND, cls);
+    this._version++;
     return this;
   }
 

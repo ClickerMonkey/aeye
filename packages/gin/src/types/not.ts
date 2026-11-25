@@ -5,6 +5,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
+import { a, type AnySchema } from '@aeye/schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
@@ -130,6 +131,9 @@ export class NotType extends Type<any, NotOptions> {
       { message: `must not match excluded type '${this.excluded.name}'` },
     ), opts);
   }
+
+  /** Any value except the excluded type's: said in words, checked on decode. */
+  valueA(opts?: ValueSchemaOptions): AnySchema { return a.not(this.excluded.toA(opts)); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({
