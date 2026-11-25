@@ -35,7 +35,7 @@ Four passes after the POC review:
 Then integration, in Phil's order:
 
 1. **Step 1: core — done.** Below, "Step 1: core".
-2. Step 2: gin and query produce `a`; the zod bridge goes.
+2. **Step 2: gin and query — done.** Below, "Step 2: gin and query".
 3. Step 3: the harness; rebuild and relink the stack's `dist`.
 
 ### Step 1: core
@@ -53,11 +53,69 @@ Then integration, in Phil's order:
 
 **Deleted from core:** `src/schema/` (descriptor, dialects, registry, consistency, strictify, decode, walk-key, check-bag, to-json-schema, json-schema, enum-values, any-value, cycle-breaker, analyze, expressible/`canExpress`, budget/`SchemaBudget`), `Tool.parse`'s zod/strictify/repair path and `withoutUndefinedKeys`, the `descriptor` fields; from `@aeye/ai`: `buildSchemaBudget`, `allocateToolDescriptors`, `apis/schema-fallback.ts` (`applySchemaDeliveryFallback` — with `a` nothing is inexpressible, there's always a fallback rendering). Core's 13 schema test files (337 tests) went with them; their expectations already live in this package's corpus (core-schema-strictify / -dialects / -budget). The old module is frozen in `bench/legacy-core/` as the zod-path baseline.
 
-**The bridge (TEMPORARY, `packages/core/src/zod-bridge.ts`, TODO(step 2)).** A zod schema — or the old function form, `undefined`/`false` meaning not applicable, a prompt's in `(input, ctx)` order — is still accepted by Tool and Prompt: `zodToA` walks the zod definition into an `a` bundle (memoized per zod instance; `z.lazy`, a `.meta({ id | aid })` and any container used twice become named types, a discriminated union keeps its tag, a pipe is its input, what has no `a` form is any JSON), planned like any schema, and after decoding parsed by zod itself (refinements, defaults, transforms; failures formatted like any error). Sent in the code shape (lenient), a bridged call isn't decoded at all, only parsed by zod / the custom parser, as before. Not via `z.toJSONSchema`: it takes ~5 s per call on query's schemas (and the plain-union walk without tags made decoding query's invalid answers explode — both found by query's suite). `fromZod` exposes it; the deprecated custom `parse` hooks stay for query's `buildQueryTool`. gin, query and ginny are untouched and pass their suites through it. Tests: core `schema-bridge.test.ts`.
+**The bridge (TEMPORARY; removed in step 2, below).** A zod schema — or the old function form, `undefined`/`false` meaning not applicable, a prompt's in `(input, ctx)` order — is still accepted by Tool and Prompt: `zodToA` walks the zod definition into an `a` bundle (memoized per zod instance; `z.lazy`, a `.meta({ id | aid })` and any container used twice become named types, a discriminated union keeps its tag, a pipe is its input, what has no `a` form is any JSON), planned like any schema, and after decoding parsed by zod itself (refinements, defaults, transforms; failures formatted like any error). Sent in the code shape (lenient), a bridged call isn't decoded at all, only parsed by zod / the custom parser, as before. Not via `z.toJSONSchema`: it takes ~5 s per call on query's schemas (and the plain-union walk without tags made decoding query's invalid answers explode — both found by query's suite). `fromZod` exposes it; the deprecated custom `parse` hooks stay for query's `buildQueryTool`. gin, query and ginny are untouched and pass their suites through it. Tests: core `schema-bridge.test.ts`.
 
-**Moved to `a`:** core's tests, ai/openai/openrouter/ollama/aws/replicate tests, test-integration's fixtures, cletus (all 58 tools and its prompts; only cletus's own config validation keeps zod). Not moved: ginny (its schemas wrap gin's zod: step 2), resources (zod for its own file versions, never reaches core).
+**Moved to `a`:** core's tests, ai/openai/openrouter/ollama/aws/replicate tests, test-integration's fixtures, cletus (all 58 tools and its prompts; only cletus's own config validation keeps zod). Not moved: ginny (its schemas wrapped gin's zod: moved in step 2), resources (zod for its own file versions, never reaches core).
 
 **Gaps closed here:** text output (a.string() takes the raw reply), `Prompt.applicable`, Claude non-strict output as prompt text (`planRequest`: a family whose output is always strict sends a `strict: false` output as prompt text unless `delivery: 'structured'`), and the repair-failed message (a container sent as broken JSON text says so).
+
+### Step 2: gin and query — done
+
+> Phil: "Then after that's good we'll integrate it with gin and query and test it. Then harness."
+
+**What landed.** gin and query produce `a` themselves; ginny is on `a`; core's bridge is gone.
+
+- **gin** (bae5424, 0aa260b): `type.toA(opts?)` for every kind (`toNewA` for a `new` slot, `defineA` for a named type's shape), same verdicts as `toValueSchema`; `GinGrammar` (the TypeDef / ExprDef / PathStep / PropDef grammar as one module, one dynamic step `(registry, overrides?)`), `buildSchemas(registry, overrides?)` returning `{ Type, Expr }` as binds cached per `registry.version`, `ginValue(type)`, `GinShapes`; custom classes give `static toA()`. The zod grammar is `buildZodSchemas` (deprecated): it only backs `toValueSchema`.
+- **ginny** (e40ca90): every tool and prompt schema on `a` (the grammar bound per ctx, `test` args via `toA`, `create_var`'s value typed by its type with `.dependent`, `fns.llm` output via `ginValue`); no zod.
+- **query** (0c4a94e, c98081d): `QueryGrammar` (the static grammar + one dynamic step over the registry, keyed by registry identity + version + options, `QUERY_BIND_CACHE_SIZE` = 4 binds per result), `buildSchemas(engine, options)` returning binds, `QueryArgs`, `querySchema`, `buildQueryTool` / `queryToolSchema` (a codec over the args: the decoded value is the runnable `Query`, problems are a `Rejection` at their paths), `FieldType.toA()` for typed write values, `static toA(build)` for registered expr kinds. Deleted: every expr's `static toSchema`, `exprDefSchema`, `schema-build`'s zod primitives and `SchemaCache`, `withAid` / `sharedIdRegistry` / `directedMessage`.
+- **schema** (e2a2a0b, 993469a): codecs and refinements report problems at paths below the value (`RuleIssue`, `Rejection`); planning speed (the fitting ladder bisects caps and depths: cletus's DBA grammar's first plan on OpenAI strict 3754 → 71 ms; PERFORMANCE.md "Planning speed").
+- **core** (58e061c): deleted `zod-bridge.ts` and `schema-bridge.test.ts`; `fromZod` / `isZodSchema` / `ZodSchemaInput` / `isZodTextSchema` and the bridged-source paths out of `schema.ts` (`ToolSchema` / `OutputSchema` are `Bindable | MappedSchema`, a `SchemaSource` always binds, `mapSchemaArgs` lost its zod argument order); `finishZod` and the custom `parse` hooks out of `tool.ts` and `prompt.ts` (decoding is the plan's, codecs applied, then `validate`; `definition()` always returns one); core's `zod` dependency. `@aeye/ai` stopped forwarding `parse`. The custom-parse tests became codec tests (core `tool.test.ts`, ai `tool-decoded.test.ts`) or capture through a codec / `validate` (`schema-wiring`, `runtime-schema-fallback`); `prompt-output-custom-parse.test.ts` went. `TDecoded` stays as a generic (it defaults to `TParams` / `TOutput`; nothing sets it now). A codec's output must be an object (`TParams extends object`): the hook allowed a primitive, a codec doesn't.
+- **The zod baseline, frozen** (db08089, d690078, 0d91db8): gin's and query's zod grammars as `bench/legacy-gin/` (gin at bae5424~1) and `bench/legacy-query/` (query at 0c4a94e~1): the import closure of `buildSchemas` / `createRegistry` / `aids`, untouched but an index and a `@ts-nocheck` line (they compiled under their own packages' options, not the typetest's stricter flags). The corpus differentials (`gin-grammar`, `gin-values`, `query`, `product`, `feedback`) and the bench use them, so they stay a zod baseline after step 3 rebuilds `dist`; the fixtures take a `createRegistry` (gin's `grammar-a.test.ts` and the bench build the same fixtures on today's gin / query). `bench:core`'s bridge column is now the real gin/query `a` path; `npm run bench:leak` measures query's leak before and after.
+
+**Tests** (all from source; node 22): gin vitest 110 files / 1464 + `test:types`; ginny 9; query 142 files / 2387; schema 33 files / 1052 + `test:types` (also clean with gin / query / core resolved to their sources); core jest 33 suites / 530 (2 skipped); ai 237; openai 100 (13 skipped); openrouter 40 (16 skipped); aws 79 (1 skipped); ollama 11; replicate 6; cletus 18 (its 8 suites that import `ink` fail to load under jest, as before step 2: ink is ESM). Source typechecks (`node_modules/.tc/*.json`) clean for core, the providers, cletus, gin, ginny, query; test-file errors left are older drift (ModelInfo generics, `Reasoning`, `usage.total`), not schema.
+
+**Performance** (PERFORMANCE.md, "Step 2"): the real gin/query `a` path plans a request in 0.02–0.11 ms and keeps nothing (the bridge took 5–29 ms for gin's grammar and 8–800 ms for query; the zod path 4–40 ms, 1.1–1.3 s for query on Anthropic). query's per-call leak: 4.1 MB kept per `buildSchemas` + render before (all `sharedIdRegistry`), 0 after.
+
+**Migrating a consumer**
+
+product (query):
+
+- `buildSchemas(engine, options)` returns binds (`Bound`), not zod. `.Query.safeParse(v)` → `.Query.render(profile).parse(v)`; `z.toJSONSchema(...)` → `.render(profileFor(model)).jsonSchema`.
+- A tool's args: not `z.object({ value: buildSchemas(sessionEngine, { strict: true, maxEnumSize }).Query })` but one static module result, bound per call: `QueryGrammar.result(a.object({ value: a.ref('Query') })).adapt((ctx) => [ctx.engine.registry, { strict: true, maxEnumSize: ctx.maxEnumSize }])` (or `querySchema(...)`). `type_compute`'s open Expr: `QueryGrammar.result('Expr')` bound with `(createRegistry(), { strict: false })`.
+- Bind once per registry version: the bind is cached per (registry identity, `registry.version`, options), 4 per result; calling `buildSchemas` every turn is a cache lookup and no longer grows the heap. Don't build a new registry per turn when the catalog hasn't changed (a fresh registry is a new 12 ms bind).
+- To run a query from the model, use `buildQueryTool` / `queryToolSchema`: the decoded args are the runnable `Query` (the schema is a codec); a bad call is a `SchemaParseError` whose message is the model's (was `QueryToolError`; `parseQueryTool` keeps `report` for a CLI or a file).
+- Stop handing zod to core: `Tool.schema` / `Prompt.schema` take `a` only (a zod schema is a compile error, and at runtime it has no `bind`). Custom `parse` hooks → `a.codec` / `.refine`; "not here" → `applicable`.
+
+harness (gin):
+
+- `ginAs(type)` (gin type → zod) → `type.toA()` inside a `GinGrammar.result(...)`, or `ginValue(type)` for a bound value schema of a gin type.
+- `toolArgsOf(fn)` → an `a` object of the args' `toA()` (a module result when an arg is typed by the grammar); its `{input: anyOf}` flattening stays a harness decision (Remaining gaps).
+- `z.object({ program: buildSchemas(r).Expr })` → `GinGrammar.result(a.object({ program: a.ref('Expr') })).adapt((ctx) => [ctx.registry])`; `keptLazy` goes (binds are keyed by `registry.version`).
+- zod-gin's `toValueSchema({ unknownKeys: 'refuse' })` checks of gin values can stay zod until step 3 (not model-facing); the model-facing ones move to `toA` / `ginValue`.
+
+**The zod left in aits** (`grep -rl "from 'zod'"` outside `node_modules`, `dist`):
+
+| Where | What | Model-facing? |
+|---|---|---|
+| gin `types/*.ts`, `type.ts`, `expr.ts`, `exprs/*.ts`, `extension.ts`, `new-slot.ts`, `node.ts`, `registry.ts`, `schemas.ts` | `toValueSchema` / `toNewSchema` / `toInstanceSchema`, static `toSchema` / `toNewSchema`, `buildZodSchemas` (deprecated) | No: gin's own value checks (authoring) and the harness's zod-gin; nothing in aits hands them to a model. They go in step 3, once the harness is on `toA`. |
+| query `field-type.ts`, `field-types/*.ts`, `refinement.ts`, `registry.ts` | field types' `toValueSchema` (query's value gate, `validValue`), a registered refinement's declared zod `value` gate | No: run-time value checks. The model sees `FieldType.toA()`; a refinement's gate runs inside that `a` schema's `.refine` on decode, and the message is `a`'s. |
+| query `type.ts`, `node.ts` (`SchemaOptions.Expr`) | `Type.toSchema` / `fieldTypeDefSchema` | No: the stored `TypeDef` / `FieldTypeDef` JSON a catalog is persisted as. |
+| query `conformance.ts`, `ddl/table.ts`, `ddl/writer.ts` | conformance samples, `TableSpec` DDL shapes | No. |
+| cletus `src/schemas.ts` | config / user file validation | No. |
+| resources `src/versions.ts`, `src/converters/pdf.ts` | its own file versions, pdf.js output checks | No. |
+| models `scripts/scrapers/replicate.ts` | a scraper script | No. |
+| schema `bench/*`, `bench/legacy-*`, corpus `ginny.test.ts`, `feedback.test.ts` | the zod baselines the benches and differentials compare with | No (tests). |
+| query / gin tests | their zod value gates' tests, `buildZodSchemas` differential (`grammar-a.test.ts`) | No (tests). |
+
+Nothing model-facing is zod: core takes no zod, and no provider path builds JSON Schema from zod (`toJSONSchema` appears only in the benches). `package.json`s still listing `zod` without importing it: openai, aws (and query/gin/cletus/resources, which do import it).
+
+**For step 3.**
+
+- Rebuild and relink `dist` (core, schema, gin, query, ginny, ai, the providers): the harness and the stale dists still carry the bridge and the zod grammars. The schema corpus no longer reads gin's / query's dist at runtime (only types), so it stays green either way.
+- The harness on `a` (`ginAs` / `toolArgsOf` → `toA` / `GinGrammar` / `ginValue`; static-mode `run` as the dynamic fn union; drop `withFnNameDocs`, records' `arg-repair` and `keptLazy`).
+- Then gin's zod: `toValueSchema` and friends and `buildZodSchemas`. gin's `grammar-a.test.ts` differential calls `buildZodSchemas`: point it at `packages/schema/bench/legacy-gin` (or drop it; the schema corpus keeps the same differential) before deleting.
+- Drop `zod` from openai's and aws's `package.json` (unused); `TDecoded` can go from core / ai's generics once no consumer names it.
+- Pre-existing, not schema: cletus's ink suites under jest; test-file type drift in ai / aws / core tests.
 
 ### Pass 1 decisions
 
@@ -446,9 +504,8 @@ The pass-1 feature tests (`src/__tests__/{render,profiles,types,encode,request,t
 
 ### Remaining gaps
 
-These are still open; each is an `it.fails` or `@ts-expect-error GAP` in the corpus and starts failing when it is fixed. (Closed in step 1: text output, `Prompt.applicable`, the broken-JSON-text message, Claude non-strict output; see "Step 1: core".)
+These are still open; each is an `it.fails` or `@ts-expect-error GAP` in the corpus and starts failing when it is fixed. (Closed in step 1: text output, `Prompt.applicable`, the broken-JSON-text message, Claude non-strict output; see "Step 1: core". Closed in step 2: the slow request ladder for a big grammar and enums widened for a depth-only overflow (993469a); see "Step 2".)
 
-- **The request ladder is slow for a big grammar on OpenAI strict**: cletus's DBA query grammar (2 types) takes ~3 s to plan the first time (it walks enum caps and depths, rendering each), ~0.3 s on Anthropic; later plans of the same bind are instant.
 
 - **A `key` option turns an optional dynamic arg required** in `bind`'s parameters (type level, core-tools).
 - **A homogeneous tuple on Anthropic strict** repeats the same branch in `items.anyOf`, spending union budget (core-schema-dialects).
@@ -461,7 +518,6 @@ These are still open; each is an `it.fails` or `@ts-expect-error GAP` in the cor
 - **No consistency check for custom profiles** (a cap of 0, "any" without `$defs`).
 - **Under null-for-absent, encode leaves a key out** when no plain optional sits beside it (core-schema-strictify).
 - **An optional tuple element** (`[string, number?]`) is not modelled (core-schema-strictify).
-- **The ladder widens enums for a depth-only overflow** too (cletus-dba).
 - **Type level:**
   - `.rest(V)` with a non-`V` named field is unsatisfiable;
   - a `declare`-pinned union;
@@ -494,10 +550,10 @@ These are still open; each is an `it.fails` or `@ts-expect-error GAP` in the cor
    - add the root `workspaces` entry and `tsconfig.base` path;
    - drop `private`.
 2. Core accepts both forms. `Tool.schema` / `Prompt.schema` take `Bindable | Fn<ZodType>`. Zod inputs are adapted by a temporary `fromZod` (via `z.toJSONSchema` → `fromJSONSchema`), and the request path uses `bind/render/parse`.
-3. Gin: `Type.toA()` beside `toValueSchema`. `buildSchemas` gets an `a` module twin (as in gin-grammar.ts, full grammar). Query's `buildSchemas` likewise.
+3. Gin: `Type.toA()` beside `toValueSchema`. `buildSchemas` gets an `a` module twin (as in gin-grammar.ts, full grammar). Query's `buildSchemas` likewise. (Done in step 2: gin's and query's `buildSchemas` are `a`; query's zod grammar is deleted, gin's is `buildZodSchemas` until the harness moves.)
 4. Harness: `ginAs`/`toolArgsOf` produce `a`; the catalog's `signature()` caches bundles; static-mode `run` becomes the dynamic `fn` union. Remove `withFnNameDocs`, `arg-repair` for records, and `keptLazy`.
 5. Ginny, cletus and the rest: move function-form schemas to chains.
-6. Remove zod from core's public API, then from gin/query, and delete strictify/decode.
+6. Remove zod from core's public API, then from gin/query, and delete strictify/decode. (Core: done in steps 1 and 2. gin / query: their model-facing schemas are `a`; their value checks keep zod, step 3 and after; see "The zod left in aits".)
 
 ## Open questions
 
@@ -547,5 +603,7 @@ Settled since they were written: 1, 2, 4, 6, 7, 8 and 9 in pass 1. In pass 2, 10
 | `src/__tests__/request-degrade.test.ts` | pass 2: requests always degrade, never error |
 | `src/__tests__/feedback.test.ts` | pass 4: errors for the model on the real corpus, every level, vs zod |
 | `bench/errors.ts` | pass 4: message size and reject time per level, vs zod (`npm run bench:errors`) |
+| `bench/legacy-core/`, `bench/legacy-gin/`, `bench/legacy-query/` | the zod path, frozen: core's old schema module (3a0cb37), gin's (bae5424~1) and query's (0c4a94e~1) zod grammars |
+| `bench/core.ts`, `bench/leak.ts`, `bench/plan.ts` | core's request path vs the zod path and the real gin/query `a` path (`bench:core`); query's per-call heap growth before/after (`bench:leak`); planning speed (`bench:plan`) |
 
 Run with `npm test` (vitest + `tsc -p tsconfig.typetest.json`) from `packages/schema`, using node 22. User docs: `aeye-schema.md`.

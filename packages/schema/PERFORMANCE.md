@@ -332,15 +332,106 @@ The global node cache stays a `WeakMap` keyed by schema instance. With fix 2 it 
 **Read:**
 
 - **Core's per-request schema work is now ~0.02–0.06 ms and keeps nothing**, for every case on every profile, query and product on Anthropic included. The zod path took 1.0–1.1 s per request for query-typed / query-paired / product on Anthropic and (measured above, "render again") kept 240–257 MB per call there: **that growth is gone from core's path**. The plan is memoized per bound schema and profile, and nothing in core walks zod lazies any more.
-- **The bridge is a step-1 cost only**, paid by code still handing core zod (ginny, query's `buildQueryTool`, and the harness once it moves to this core) when it builds a fresh zod schema per call. It is close to the zod path for small and gin schemas (0.3–2 ms; gin's grammar 5–29 ms) and faster on Anthropic for query (0.3–0.8 s against 1.0–1.1 s), but slower on OpenAI strict for query (0.06–0.49 s against 7–24 ms): planning walks the fitting ladder (enum caps, then depths) for a grammar that doesn't fit OpenAI's limits, where the old path sent it over the limits. It goes in step 2, where gin and query bind cached `a` bundles (the **a** column).
+- **The bridge is a step-1 cost only**, paid by code still handing core zod (ginny, query's `buildQueryTool`, and the harness once it moves to this core) when it builds a fresh zod schema per call. It is close to the zod path for small and gin schemas (0.3–2 ms; gin's grammar 5–29 ms) and faster on Anthropic for query (0.3–0.8 s against 1.0–1.1 s), but slower on OpenAI strict for query (0.06–0.49 s against 7–24 ms): planning walks the fitting ladder (enum caps, then depths) for a grammar that doesn't fit OpenAI's limits, where the old path sent it over the limits. It went in step 2, where gin and query bind cached `a` bundles ("Step 2" below).
 - Two bridge designs were measured and dropped: going through `z.toJSONSchema` (zod's own converter takes **~5 s per call** on query's schemas, in `io: 'input'` or `'output'`), and a walk without named types (no `$defs` for shared fragments: 5 s plans). The walker names `z.lazy`, `.meta({ id | aid })` and every container used twice, and keeps a discriminated union's tag (without it, decoding query's invalid answers explored every union option and query's suite hung).
-- Not yet fast: the ladder itself on a big grammar. cletus's DBA query grammar plans in ~3 s the first time on OpenAI strict (~0.3 s on Anthropic); later plans of the same bind are instant. Worth a cheaper search (e.g. bisecting the depth) in the schema package.
+- Not yet fast: the ladder itself on a big grammar. cletus's DBA query grammar plans in ~3 s the first time on OpenAI strict (~0.3 s on Anthropic); later plans of the same bind are instant. (Fixed since: 71 ms / 45 ms, "Planning speed" below.)
+
+## Step 2: gin and query on `a`
+
+gin and query produce `a` themselves now (gin: `Type.toA`, `GinGrammar`, `buildSchemas` returning binds, `ginValue`; query: `QueryGrammar`, `buildSchemas` returning binds, `QueryArgs`, `buildQueryTool`'s codec), and core's zod bridge is gone. Their zod grammars are frozen in `bench/legacy-gin/` (gin at bae5424~1) and `bench/legacy-query/` (query at 0c4a94e~1), so the zod side of every bench and corpus differential stays the same baseline after step 3 rebuilds `dist`.
+
+### Core's request path: the real gin/query `a` path (`npm run bench:core`)
+
+The **real** column is what a consumer of today's packages pays per request: bind the package's own `a` schema for the call (`GinGrammar.result({program: Expr}).bind(registry)`, `ginValue(type)`, `QueryArgs.bind(registry, options)`, `QueryGrammar.result({value: Query}).bind(registry, { strict, maxEnumSize: 100 })`; a cache hit after the first), `planRequest` for the model, `sentTools`. Beside it the corpus port (step 1's **a** column), step 1's **bridge** (core's temporary zod bridge, deleted now) and the zod path. Same machine and method as step 1's table (above); the rows without a gin/query package path (cletus, harness tools) are unchanged.
+
+| case | profile | a (corpus port): ms | real gin/query a: ms | real a: MB kept | step-1 bridge: ms | step-1 bridge: MB | zod path: ms | zod path: MB |
+|---|---|---|---|---|---|---|---|---|
+| gin-value | openai-strict | 0.017 | 0.022 | 0 | 1.549 | 0.01 | 1.045 | 0.01 |
+| gin-value | anthropic-strict | 0.018 | 0.021 | 0 | 1.266 | 0.01 | 0.953 | 0.01 |
+| gin-value | gemini | 0.014 | 0.017 | 0 | 0.941 | 0 | 0.755 | 0 |
+| gin-value | lenient | 0.014 | 0.016 | 0 | 0.861 | 0 | 0.998 | 0 |
+| gin-grammar | openai-strict | 0.017 | 0.067 | 0 | 9.053 | 0.07 | 9.509 | 0.09 |
+| gin-grammar | anthropic-strict | 0.053 | 0.052 | 0 | 29.003 | 2.09 | 11.369 | 0.1 |
+| gin-grammar | gemini | 0.017 | 0.019 | 0 | 7.783 | 0.51 | 7.72 | 0.08 |
+| gin-grammar | lenient | 0.017 | 0.021 | 0 | 5.461 | 0.91 | 4.136 | 0.06 |
+| query-open | openai-strict | 0.021 | 0.03 | 0 | 56.071 | 0.13 | 8.744 | 0.09 |
+| query-open | anthropic-strict | 0.048 | 0.058 | 0 | 102.249 | 0.06 | 83.617 | 0.22 |
+| query-open | gemini | 0.014 | 0.018 | 0 | 14.173 | 0.05 | 10.342 | 0.08 |
+| query-open | lenient | 0.014 | 0.017 | 0 | 8.219 | 0.59 | 6.289 | 0.08 |
+| query-names | openai-strict | 0.027 | 0.02 | 0 | 91.287 | 0.15 | 11.842 | 0.1 |
+| query-names | anthropic-strict | 0.053 | 0.068 | 0 | 150.134 | 0.05 | 109.12 | 0.08 |
+| query-names | gemini | 0.019 | 0.02 | 0 | 19.567 | 1.02 | 14.165 | 0.09 |
+| query-names | lenient | 0.015 | 0.017 | 0 | 10.896 | 0.46 | 10.222 | 0.08 |
+| query-typed | openai-strict | 0.028 | 0.03 | 0 | 184.939 | 0.13 | 21.076 | 0.14 |
+| query-typed | anthropic-strict | 0.063 | 0.066 | 0 | 306.375 | 0.03 | 1211.373 | 123.94 |
+| query-typed | gemini | 0.017 | 0.02 | 0 | 41.855 | 0.16 | 31.733 | 0.12 |
+| query-typed | lenient | 0.014 | 0.019 | 0 | 21.486 | -0.9 | 20.384 | 0.11 |
+| query-paired | openai-strict | 0.036 | 0.025 | 0 | 381.784 | 0.22 | 24.964 | 0.15 |
+| query-paired | anthropic-strict | 0.057 | 0.06 | 0 | 662.021 | 0.02 | 1285.908 | 0.17 |
+| query-paired | gemini | 0.021 | 0.021 | 0 | 73.278 | 0.19 | 39.321 | 0.14 |
+| query-paired | lenient | 0.014 | 0.017 | 0 | 25.807 | 0.11 | 21.515 | 0.14 |
+| product-query-set | openai-strict | 0.035 | 0.025 | 0 | 489.262 | 0.27 | 27.28 | 0.17 |
+| product-query-set | anthropic-strict | 0.063 | 0.108 | 0 | 802.88 | 0.05 | 1204.229 | -0.29 |
+| product-query-set | gemini | 0.018 | 0.037 | 0 | 88.404 | 0.21 | 38.378 | 0.16 |
+| product-query-set | lenient | 0.028 | 0.017 | 0 | 34.952 | -0.82 | 24.539 | 0.15 |
+
+**Read:**
+
+- **What step 1's bridge cost is gone.** The real packages plan a request in 0.02–0.11 ms and keep nothing, the same as the corpus ports, for gin and for query and product on every profile. Through the bridge (a zod schema built per call, walked into `a`, planned) the same requests took 5–29 ms for gin's grammar and 8–800 ms for query; the zod path takes 4–40 ms, and 1.1–1.3 s for query on Anthropic.
+- The zod path still keeps 124 MB per request for query-typed on Anthropic (core's old cycle breaker; the id registries are emptied between calls here, so that's not query's leak, below).
+
+### query's `sharedIdRegistry` leak: before and after (`npm run bench:leak`)
+
+Heap kept per query `buildSchemas` call, the way product calls it every turn (`{ strict: true, maxEnumSize: 100 }`, 4 types; N = 30 calls per row, and 90 for the last row's check):
+
+| path | registry | MB kept / call | ms / call |
+|---|---|---|---|
+| before: zod `buildSchemas` (the lazies not walked) | same | 0.036 | 3.2 |
+| before: zod `buildSchemas` | fresh each call | 0.015 | 2.6 |
+| before: zod `buildSchemas` + render (OpenAI strict, core's old `toJSONSchema(strictify)`) | same | **4.12** | 26.9 |
+| before: the same | fresh each call | **4.11** | 26.5 |
+| before: the same, query's id registry emptied after each call | same | 0.006 | 26.0 |
+| before: the same, emptied | fresh each call | −0.004 | 26.0 |
+| after: `a` `buildSchemas(...).Query.render(OPENAI_STRICT)` | same | **0** | 0.03 |
+| after: the same | fresh each call | 0.236 (N = 30) · 0.097 (N = 90) | 12.0 |
+
+- **Before:** ~4.1 MB kept per call, all of it query's process-local `sharedIdRegistry` (emptying it after each call brings it to 0): every generation's shared fragments, salted per generation, never freed. A long-lived product process grew without bound.
+- **After: nothing per call.** On the same registry the bind is a cache hit (0.03 ms). On a fresh registry each call, what stays is query's bounded bind cache (`QUERY_BIND_CACHE_SIZE` = 4 binds, ~7–9 MB in all: 0.236 × 30 ≈ 0.097 × 90), not growth.
+- query's own `npm run bench:leak` (packages/query, `a` side, fork B) agrees: before (zod build + `z.toJSONSchema`) 2.35 MB kept per call on the same registry, 2.20 MB on a fresh one; after 0 MB and 0.04 ms per call on the same registry, 0.004 MB and 12–18 ms on a fresh one; the bind caches stay ≤ 4 across 50 registries (tested).
+
+### The packages' own numbers
+
+**gin** (vitest timings, `{program: Expr}` write args, the fixture registry, `newStrict`):
+
+| | OpenAI strict | Anthropic strict | Gemini | lenient |
+|---|---|---|---|---|
+| first bind + render | 9.1 ms | 1.8 ms | 1.6 ms | 1.5 ms |
+| cached bind + render | 0.7–0.9 µs | 0.7–0.9 µs | 0.7–0.9 µs | 0.7–0.9 µs |
+| first request plan / next | 11 ms / 0.08 ms | 17 ms / 0.18 ms | | |
+| decode a 200-program block | 11.4 ms | 6.5 ms | | 3.8 ms |
+
+A new registry version binds in 2.2 ms. The zod grammar's (`buildZodSchemas`) `safeParse` of the same block: 9.0 ms.
+
+**query** (`npm run bench:schema` in packages/query, 3 types / 100+ functions): a new bind 0.9–2.0 ms; first render 2.4–23.6 ms by depth level and profile; 16–124 KB of JSON; cached `buildSchemas` + render 15–22 µs; a 1k-row typed insert decodes in 1.55 ms; a rejected answer with 2 problems is 133 characters as `'summary'`, 692 with markers, in 250–410 µs.
+
+### Planning speed (993469a, `npm run bench:plan`)
+
+The fitting ladder was the slow part left after step 1 (above, "Not yet fast"). Depth is now measured once per (type, open component) state and the ladder bisects caps and depths, widening enums only where that helps. First plan of a request:
+
+| request | before | after |
+|---|---|---|
+| cletus DBA query grammar, OpenAI strict | 3754 ms | 71 ms |
+| cletus DBA query grammar, Anthropic strict | 370 ms | 45 ms |
+| query paired, Anthropic strict | 418 ms | 62 ms |
+| product `query_set`, Anthropic strict | 434 ms | 70 ms |
+
+Later plans of the same bind are memoized (~0 ms), as before.
 
 ## Worrying, outside `packages/schema` (the zod path today)
 
 These are measured here, not fixed here.
 
-- **@aeye/query leaks every `buildSchemas` call.**
+- **@aeye/query leaked every `buildSchemas` call (fixed in step 2: its grammar is `a` and the id registry is gone; "Step 2" above).**
   - Its process-local `sharedIdRegistry` (a zod registry, aids.ts) keeps every generation's shared fragments in its id map forever, and the ids are salted per generation so they never repeat.
   - That is ~2 MB per call (62 MB freed by emptying the map after 30 calls).
   - product builds `query_set`'s schema per turn, so a long-lived product process grows without bound.
@@ -359,7 +450,9 @@ These are measured here, not fixed here.
 - It prints the tables and writes `bench/.results/timings.json` and `rows-<case>.json`. `--only` re-runs merge with the earlier rows.
 - `npm run bench:memory` writes `bench/.results/memory.json` (about 15 min). `-- --part=perCall` re-runs only the allocation counts.
 - `npm run bench:equivalence` checks that the two sides give the same verdicts.
-- `npm run bench:core` measures core's request path after step 1, the bridge and the legacy zod path (about 15 min; `-- --only=query`, `-- --n=5`).
+- `npm run bench:core` measures core's request path: the corpus ports, the real gin/query `a` path (step 2) and the legacy zod path (about 10 min; `-- --only=query`, `-- --n=5`).
+- `npm run bench:leak` measures the heap kept per query `buildSchemas` call, zod (legacy-query) against `a` (`-- --n=90`).
+- `npm run bench:plan` times the first and later plans of big grammars per profile.
 - `npm run bench:errors` measures the messages for the model (pass 4). `-- --show` prints each one, `-- --no-zod` skips the zod side, `-- --only=gin`, `-- --profile=openai-strict` filter.
 
 ## All memory numbers
