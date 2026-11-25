@@ -69,12 +69,20 @@ const internal = (name) => {
     .filter(dep => dep !== name && packages.has(dep));
 };
 
-// Every package after the ones it depends on
+/** The internal packages a package needs at run time (dev dependencies are only for its tests and benches). */
+const runtime = (name) => {
+  const { json } = packages.get(name);
+  return Object.keys({ ...json.dependencies, ...json.peerDependencies })
+    .filter(dep => dep !== name && packages.has(dep));
+};
+
+// Every package after the ones it runs against. Dev dependencies don't order it: @aeye/schema's tests use
+// @aeye/gin and @aeye/query, which depend on @aeye/schema, and its build needs neither.
 const order = [];
 const visit = (name, trail) => {
   if (order.includes(name)) return;
   if (trail.includes(name)) fail(`Dependency cycle: ${[...trail, name].join(' -> ')}`);
-  internal(name).forEach(dep => visit(dep, [...trail, name]));
+  runtime(name).forEach(dep => visit(dep, [...trail, name]));
   order.push(name);
 };
 [...packages.keys()].sort().forEach(name => visit(name, []));
