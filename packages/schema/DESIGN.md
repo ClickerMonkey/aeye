@@ -36,7 +36,7 @@ Then integration, in Phil's order:
 
 1. **Step 1: core — done.** Below, "Step 1: core".
 2. **Step 2: gin and query — done.** Below, "Step 2: gin and query".
-3. Step 3: the harness; rebuild and relink the stack's `dist`.
+3. **Step 3: the harness — done.** Below, "Step 3: the harness".
 
 ### Step 1: core
 
@@ -97,25 +97,62 @@ harness (gin):
 
 | Where | What | Model-facing? |
 |---|---|---|
-| gin `types/*.ts`, `type.ts`, `expr.ts`, `exprs/*.ts`, `extension.ts`, `new-slot.ts`, `node.ts`, `registry.ts`, `schemas.ts` | `toValueSchema` / `toNewSchema` / `toInstanceSchema`, static `toSchema` / `toNewSchema`, `buildZodSchemas` (deprecated) | No: gin's own value checks (authoring) and the harness's zod-gin; nothing in aits hands them to a model. They go in step 3, once the harness is on `toA`. |
 | query `field-type.ts`, `field-types/*.ts`, `refinement.ts`, `registry.ts` | field types' `toValueSchema` (query's value gate, `validValue`), a registered refinement's declared zod `value` gate | No: run-time value checks. The model sees `FieldType.toA()`; a refinement's gate runs inside that `a` schema's `.refine` on decode, and the message is `a`'s. |
 | query `type.ts`, `node.ts` (`SchemaOptions.Expr`) | `Type.toSchema` / `fieldTypeDefSchema` | No: the stored `TypeDef` / `FieldTypeDef` JSON a catalog is persisted as. |
 | query `conformance.ts`, `ddl/table.ts`, `ddl/writer.ts` | conformance samples, `TableSpec` DDL shapes | No. |
 | cletus `src/schemas.ts` | config / user file validation | No. |
 | resources `src/versions.ts`, `src/converters/pdf.ts` | its own file versions, pdf.js output checks | No. |
-| models `scripts/scrapers/replicate.ts` | a scraper script | No. |
 | schema `bench/*`, `bench/legacy-*`, corpus `ginny.test.ts`, `feedback.test.ts` | the zod baselines the benches and differentials compare with | No (tests). |
 | query / gin tests | their zod value gates' tests, `buildZodSchemas` differential (`grammar-a.test.ts`) | No (tests). |
 
 Nothing model-facing is zod: core takes no zod, and no provider path builds JSON Schema from zod (`toJSONSchema` appears only in the benches). `package.json`s still listing `zod` without importing it: openai, aws (and query/gin/cletus/resources, which do import it).
 
-**For step 3.**
+**For step 3** (all done; see "Step 3: the harness"; gin's and models' rows above are gone since).
 
 - Rebuild and relink `dist` (core, schema, gin, query, ginny, ai, the providers): the harness and the stale dists still carry the bridge and the zod grammars. The schema corpus no longer reads gin's / query's dist at runtime (only types), so it stays green either way.
 - The harness on `a` (`ginAs` / `toolArgsOf` → `toA` / `GinGrammar` / `ginValue`; static-mode `run` as the dynamic fn union; drop `withFnNameDocs`, records' `arg-repair` and `keptLazy`).
 - Then gin's zod: `toValueSchema` and friends and `buildZodSchemas`. gin's `grammar-a.test.ts` differential calls `buildZodSchemas`: point it at `packages/schema/bench/legacy-gin` (or drop it; the schema corpus keeps the same differential) before deleting.
 - Drop `zod` from openai's and aws's `package.json` (unused); `TDecoded` can go from core / ai's generics once no consumer names it.
 - Pre-existing, not schema: cletus's ink suites under jest; test-file type drift in ai / aws / core tests.
+
+### Step 3: the harness — done
+
+> Phil: "Then after that's good we'll integrate it with gin and query and test it. Then harness."
+
+**The harness (E:\GitHub\harness; reviewed and committed there by the main session).** Everything a model sees is `a`; zod stays where ayepi needs it (API and link wire, config, stored records).
+
+- **gin types → `a`**, in harness core `gin-a.ts`: `HarnessGrammar` is `GinGrammarStatic` + gin's `grammarDefs` + a `FnName` named type, bound `(registry, names?, overrides?)`, 4 binds per result. A fn-name field (`g.fnName()`, a text of `FN_NAME_PATTERN`) maps to `a.ref('FnName')` through gin's new `toA({ override })`: a codec over the prompt's `ModelFnNames` (the model writes `fs__read`, code gets `fs/read`). With no names it is the plain text, for code and people. `ginBundle(type, opts)` is a type's bundle; `checkGinValue` / `ginValueCheck` (LENIENT) replace every `toValueSchema().safeParse`. The harness's `record<V>` type gives `static toA` / `valueA` / `toNewA`.
+- **Open question 3 (async codecs), settled for the harness**: codecs stay sync. The registry's async lookup (`learn`) runs before core decodes: the agent loop wraps the prompt's streamer and waits on `names.learn` for each finished tool call before yielding it.
+- **Hub agents**: a fn's signature holds `check(args)`, `argsFor(names)` and a LENIENT `argsJsonSchema`. Tools are `a` bindables bound per prompt. Static `run` is `{ fn: FnName, args: .dependent('args', 'fn', …), on }`: the fns the prompt shows decode `args` by their own schema, any other fn takes JSON args that the hub checks with the same `a` check. Fleet `on` is an enum of machines.
+- **Bad args**: core answers with `@aeye/schema`'s format (`errorFormat: { detail: 'list', maxErrors: 5, maxChars: 1000 }`) and retries in the job. The hub records each refused call as an invalid-input run (the chat's "Thinking harder") from the prompt's `toolError` event, and its repairs from `toolArgRepairAttempt`, which now has `toolCallId`. `arg-repair.ts`, `acceptObject`, `withFnNameDocs`, `keptLazy`, `parseArgs` and model-facing `conciseIssues` are gone.
+- **Dispatcher vs `fns_search` / `fns_load`**: no overlap. The hub's search and load bring fns into a later prompt. Core's `run_tool` only carries this prompt's tools past a provider's cap (tools mode with more than 128 tools at signature). A dispatched call decodes back to its tool, whose `call` records it under its own fn.
+- **The gateway**: a system sends each schema as its LENIENT JSON Schema. The hub rebuilds it with `a.fromJSONSchema` (kept by JSON), its provider plans for the real model, and the hub decodes each finished call through that plan. A good call goes back to the system in the code shape, under the original tool's name even when it was dispatched. A bad call goes back as the raw arguments with `invalid` (core's new `ToolCall.invalid`), which the system's prompt answers with as is. A structured output is decoded on the hub before it streams back. The `descriptors` chunk is gone.
+- **Systems**: authoring tools (`authoringTool` takes a Bindable or `(session) => Bound`), program drafts on `HarnessGrammar` (no `keptLazy`), database drafts on `QueryGrammar`, input forms, widgets, schedule; MCP imports via `a.fromJSONSchema` plus the sdk's new `ginOfA` (`a` → gin) for the fn decl; `HubLlm.object`.
+- **What stays zod, and why**: sdk `zod-gin.ts` (`ginOf` / `ginAs` / `toolArgsOf`) turns ayepi's zod API types into gin wire types; a fn's args travel as a gin TypeDef, and the model sees them through `ginBundle`. `toolArgsOf`'s people-only and `forModels` handling, and `partialOf`, needed no change. Also zod: `@harness/core`'s contracts (link, `llm.ts`, records, the agent's resume state), env slices, `@ayepi/mcp`'s `define({ args })`, and stored shapes (`ApiService`, `QueryPayload`, `InputFormSchema`, schedule `shared/types.ts`, whose `When` / `SchedulePayload` reach a model only as `ginAs` fn args, so through `ginBundle`).
+
+**In aits** (80c85e0, 591d1b9, c600b2c, fd4d7be, deabe36):
+
+- **core**: `ToolCall.invalid` (a relaying provider's verdict, answered as is); `toolArgRepairAttempt.toolCallId`; `TDecoded` removed from core's and ai's generics.
+- **gin**:
+  - `toA({ override })`.
+  - Its zod is deleted: `toValueSchema`, `toNewSchema`, `toInstanceSchema`, the static `toSchema` / `toNewSchema`, `buildZodSchemas`, `schemas.ts` and `SchemaOptions`. gin has no zod dependency, and its differentials read `bench/legacy-gin`.
+  - A text-keyed map's logical JSON is now a record, `toA`'s code shape: it parses an object of values by key (and pairs, as before), and envelopes keep pairs. A model's record and gin's own JSON now agree; before, gin refused the record a model wrote against `toA`.
+- **models**: the replicate scraper's prompt schema is `a`.
+- **openai / aws**: their unused `zod` dependency is gone.
+- **The build** (cd88662, released as c4a834f): schema is a composite project that core references, and the gin / query exports that were too long for tsc to emit have explicit `Bundle` types.
+
+**Tests**:
+- **Harness**: `npx vitest run packages systems scripts --maxWorkers=2` gives 4326 passed. Failures: only the known env ones (proxy, supervisor-network ×2, sdk testing/data git, 2 live) plus two that are fixed and pass on their own (core `gin.test`, web `forms.test`). Typechecks clean: `vue-tsc -b`, `tsc -b packages/hub packages/build packages/cli`, scripts. `docs:authoring --check` passes, and eslint is clean on the changed files.
+- **aits**: core jest 532, ai 237, openai 100, aws 79, gin 1451, ginny 9, query 2387, schema 1052; every `.tc` typecheck clean but the test-file drift listed in step 2.
+
+**Performance**: PERFORMANCE.md, "Step 3".
+
+**Left open**:
+- ginTypeProblem's gin-specific TypeDef hints ("an object type is named obj") no longer reach a model through the `a` checks. A `.refine` on `typ` values would bring them back.
+- Fn names in field docs aren't respelled for the model (as before).
+- A system no longer hears `toolArgRepairAttempt` for calls the hub decoded.
+- An output that fails on the hub is reported by the system's lenient parse; it has no `invalid` channel.
+- Saved interactions record the lenient schemas unless a plan was already pinned.
 
 ### Pass 1 decisions
 

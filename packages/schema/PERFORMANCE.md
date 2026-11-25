@@ -427,6 +427,15 @@ The fitting ladder was the slow part left after step 1 (above, "Not yet fast"). 
 
 Later plans of the same bind are memoized (~0 ms), as before.
 
+## Step 3: the harness on `a`
+
+Measured in the harness (BagEnd, node 22) after it moved to `a`. The zod path it replaced is the one measured in the sections above (`legacy-core` / `legacy-gin`), so these are "after" numbers, compared with those.
+
+- **The hub over a run of planned prompts** (`npm run prompt:memory` in the harness: a fresh stack with fs, database, input, widgets, code, api and the embedder; 150 `previewPrompt`s of `hub/chat` (tools mode, 27 tools) and `hub/chat_small` (static mode, 6 tools) on two models; the hub's working set every 10 prompts). 351 MB before the first prompt and ~390 ms per planned prompt (the whole planner: selection, rendering, the aeye request). The working set rises ~6 MB a prompt until V8 collects at round 80–90 (~770 MB), then ~1.5 MB a prompt. With the harness's `FnName` bind cache at 16 binds per tool it peaked at 887 MB; at 4 (kept) at 831 MB.
+- **The schema path alone, in process, heap after `gc()`**: binding all 135 hub fns' args (`ginBundle` over `HarnessGrammar`, `FnName` a codec over a fresh `ModelFnNames` each prompt) and planning them as one request on OpenAI strict, Claude strict and Ollama in turn: +36 MB after 25 prompts, +39 MB after 150, flat (4 cached binds per tool × 3 dialects), 25 ms per 135-tool plan. Nothing grows per prompt, so the hub's slope above is the collector's pace, not the schemas.
+- **Against the zod path**: the harness rebuilt a forwarded call's zod schemas from JSON on the hub (10–20 ms per round for an authoring grammar, and 110 ms converting them back to JSON Schema to save the call, the harness's own measurements), gin's zod grammar took ~130 ms per rebuild, and core's `toJSONSchema` grew the heap per call (~2 MB on OpenAI / Gemini, ~250 MB on Anthropic, above). Now a forwarded schema is rebuilt once per distinct JSON (`a.fromJSONSchema`, kept by its JSON) and rendered once per dialect.
+- **Prompt sizes** (`npm run prompt:render`, the same message as the last zod render): `hub/chat`'s tool parameters 13,499 → 13,174 characters (−2.4%), while carrying field docs zod dropped (`fns_search`'s `types` and `names`); the static toolset 1,462 → 1,325 estimated tokens (`run` 302 → 232: its `args` an object typed by the fn it names, no recursive `$defs` for any JSON).
+
 ## Worrying, outside `packages/schema` (the zod path today)
 
 These are measured here, not fixed here.
