@@ -1,7 +1,8 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import type { TypeDef } from '@aeye/gin';
-import { buildSchemas } from '@aeye/gin';
+import { GinGrammar } from '@aeye/gin';
 import { ai } from '../ai';
+import type { GrammarCtx } from '../schemas';
 
 /**
  * Edit a saved type's definition. The proposed new TypeDef must be
@@ -29,15 +30,13 @@ export const editType = ai.tool({
     'Update an existing named type. The new definition is checked against the old: every value of the OLD shape must still satisfy the NEW shape. ' +
     'Use this to widen field types, add optional fields, or loosen constraints. ' +
     'Removing fields, adding REQUIRED fields, or narrowing types is rejected — those would break existing values / callers.',
-  schema: (ctx) => {
-    const opts = buildSchemas(ctx.registry);
-    return z.object({
-      name: z.string().describe('Name of the saved type to edit (matches the file at `./types/<name>.json`).'),
-      def: (opts.Type as z.ZodType<TypeDef>).describe(
-        'The new TypeDef. Its `name` must match the type being edited; the structural change must be backwards-compatible.',
-      ),
-    });
-  },
+  // gin's grammar, bound per ctx (cached by the registry's version).
+  schema: GinGrammar.result(a.object({
+    name: a.string().describe('Name of the saved type to edit (matches the file at `./types/<name>.json`).'),
+    def: a.ref('TypeDef').describe(
+      'The new TypeDef. Its `name` must match the type being edited; the structural change must be backwards-compatible.',
+    ),
+  })).adapt((ctx: GrammarCtx) => [ctx.registry]),
   call: async (input: { name: string; def: TypeDef }, _refs, ctx) => {
     let oldDef: TypeDef;
     try {

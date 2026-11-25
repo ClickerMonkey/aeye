@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 
 /**
@@ -17,8 +17,8 @@ export const ask = ai.tool({
     'Use sparingly — only when you genuinely need information from the user ' +
     '(missing requirement, ambiguous intent, decision between options). ' +
     'Phrase the question concisely. Returns the user\'s typed answer.',
-  schema: z.object({
-    question: z.string().describe('The question to put to the user.'),
+  schema: a.object({
+    question: a.string().describe('The question to put to the user.'),
   }),
   applicable: (ctx) => typeof ctx.ask === 'function',
   call: async (input: { question: string }, _refs, ctx) => {

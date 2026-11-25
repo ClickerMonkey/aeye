@@ -1,7 +1,8 @@
-import { z } from 'zod';
-import { buildSchemas, Code, Problems } from '@aeye/gin';
+import { a } from '@aeye/schema';
+import { Code, GinGrammar, Problems } from '@aeye/gin';
 import type { ExprDef, Problem } from '@aeye/gin';
 import { ai } from '../ai';
+import type { GrammarCtx } from '../schemas';
 import { logger, genId } from '../logger';
 
 /**
@@ -32,10 +33,8 @@ export const write = ai.tool({
     'ERRORS block the next step — fix them before calling test(). ' +
     'WARNINGS are advisory — review and address what you can; a fn whose saved warnings exceed the threshold will be rejected at finish().',
   maxArgsLength: WRITE_MAX_ARGS_LENGTH,
-  schema: (ctx) => {
-    const opts = buildSchemas(ctx.registry, { newStrict: true });
-    return z.object({ program: opts.Expr as z.ZodType<ExprDef> });
-  },
+  // gin's grammar with `new` locked to the constructible types, bound per ctx.
+  schema: GinGrammar.result(a.object({ program: a.ref('Expr') })).adapt((ctx: GrammarCtx) => [ctx.registry, { newStrict: true }]),
   call: async (input: { program: ExprDef }, _refs, ctx) => {
     ctx.runState.draft = input.program;
     ctx.runState.lastTest = null;

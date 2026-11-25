@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { tavily } from '@tavily/core';
 import { ai } from '../ai';
 import { throwIfAborted, withAbortRace } from '../signal-utils';
@@ -7,9 +7,9 @@ export const webSearch = ai.tool({
   name: 'web_search',
   description: 'Search the web using Tavily. Returns titles, URLs, and content snippets.',
   instructions: 'Search the web. Returns JSON array of results with title, url, content.',
-  schema: z.object({
-    query: z.string().describe('Search query'),
-    maxResults: z.number().optional().default(5).describe('Max results (default 5)'),
+  schema: a.object({
+    query: a.string().describe('Search query'),
+    maxResults: a.number().default(5).describe('Max results (default 5)'),
   }),
   call: async (input: { query: string; maxResults?: number }, _refs, ctx) => {
     throwIfAborted(ctx.signal);

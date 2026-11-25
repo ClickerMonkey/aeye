@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 
 /**
@@ -22,9 +22,9 @@ export const searchFns = ai.tool({
     + 'Pass keywords to score-rank when the catalog grows beyond ~20 entries. '
     + 'Each result is a top-level global — invoke it as `<name>({args})` (a path with the fn name as the first prop step), '
     + 'NOT `fns.<name>({args})`. The `fns.*` namespace is reserved for built-in natives (fetch, llm, log, ask).',
-  schema: z.object({
-    keywords: z.array(z.string()).default([]),
-    limit: z.number().optional().default(20),
+  schema: a.object({
+    keywords: a.array(a.string()).default([]),
+    limit: a.number().default(20),
   }),
   call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
     const results = ctx.store.searchFns({ keywords: input.keywords, limit: input.limit });

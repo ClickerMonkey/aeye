@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
 import { architect } from '../prompts/architect';
@@ -13,8 +13,8 @@ export const findOrCreateTypes = ai.tool({
   name: 'find_or_create_types',
   description: 'Locate or author the types needed for the program. Returns their code definitions.',
   instructions: 'Delegates to the architect. Provide a description of the types needed.',
-  schema: z.object({
-    description: z.string().describe('What types are needed and why'),
+  schema: a.object({
+    description: a.string().describe('What types are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx) => {
     const result = await runSubagent(

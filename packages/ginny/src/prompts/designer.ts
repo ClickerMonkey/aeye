@@ -1,6 +1,7 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import type { Message } from '@aeye/core';
-import { buildSchemas, ObjType } from '@aeye/gin';
+import { GinGrammar, ObjType } from '@aeye/gin';
+import type { GrammarCtx } from '../schemas';
 import type { TypeDef, Type } from '@aeye/gin';
 import { ai } from '../ai';
 import { modelFor, toolIterationsConfig } from '../model-selection';
@@ -22,7 +23,7 @@ const getFn = ai.tool({
   name: 'get_fn',
   description: 'Get the full signature of a function by name.',
   instructions: 'Retrieve function signature by name.',
-  schema: z.object({ name: z.string() }),
+  schema: a.object({ name: a.string() }),
   call: async (input: { name: string }, _refs, ctx) => {
     try {
       // `readFn` returns the TypeDef directly — `call.get` holds the body.
@@ -45,13 +46,11 @@ const createNewFn = ai.tool({
     'CRITICAL: every value the function should operate on must be a parameter in `args`. ' +
     'If the user wrote "compute prime factors of a number", the number is a PARAMETER (`{ name: "obj", props: { n: { type: { name: "num" } } } }`) — ' +
     'do NOT bake a sample like 56 into the body. The whole point of saving a function is so the user can call it again with different inputs.',
-  schema: (ctx) => {
-    const opts = buildSchemas(ctx.registry);
-    return z.object({
-      name: z.string().describe('Unique function name (camelCase)'),
-      description: z.string().describe('What the function should do'),
-      types: z
-        .record(z.string(), opts.Type as z.ZodType<TypeDef>)
+  schema: GinGrammar.result(a.object({
+      name: a.string().describe('Unique function name (camelCase)'),
+      description: a.string().describe('What the function should do'),
+      types: a
+        .record(a.ref('TypeDef'))
         .optional()
         .describe(
           'Optional `call.types` aliases — declare reusable named types here ONCE and reference them inside `args` / `returns` as a bare `{name: "<alias>"}`. ' +
@@ -59,7 +58,7 @@ const createNewFn = ai.tool({
           'Example: `{ "positiveInt": { "name": "num", "options": { "whole": true, "min": 1 } } }` lets you write `args: { name: "obj", props: { n: { type: { name: "positiveInt" } } } }` and `returns: { name: "list", generic: { V: { name: "positiveInt" } } }` — instead of repeating the full options block twice. ' +
           'Sequential: later aliases may reference earlier. Pick alias names that don\'t collide with built-in type-class names (`num`, `list`, `obj`, etc.) — bare `{name: "num"}` always resolves to the built-in num.',
         ),
-      args: (opts.Type as z.ZodType<TypeDef>).describe(
+      args: a.ref('TypeDef').describe(
         'TypeDef of the function\'s parameter object. The PROPS of this obj ARE the function\'s parameters — ' +
         'each prop becomes a scope variable in the body when the function is called. ' +
         'Examples: function taking one number → `{ name: "obj", props: { n: { type: { name: "num" } } } }`; ' +
@@ -67,12 +66,11 @@ const createNewFn = ai.tool({
         'Only use `{ name: "obj" }` (empty obj, no props) for genuinely nullary functions — most useful functions have parameters, so default to listing them as props. ' +
         'May reference any alias declared in `types` via `{name: "<alias>"}` (saves repetition).',
       ),
-      returns: (opts.Type as z.ZodType<TypeDef>).describe(
+      returns: a.ref('TypeDef').describe(
         'TypeDef of the function\'s return value — e.g. `{ name: "list", generic: { V: { name: "num" } } }` for `list<num>`. ' +
         'May reference any alias declared in `types` via `{name: "<alias>"}`.',
       ),
-    });
-  },
+  })).adapt((ctx: GrammarCtx) => [ctx.registry]),
   // Defensive — the deepest programmer is supposed to write inline, but
   // also block designer.createNewFn at the cap in case a different path
   // got us here.
@@ -313,19 +311,16 @@ const editFn = ai.tool({
     'Replace a saved function. The new args / returns are checked against the old: existing callers must keep working. ' +
     'Allowed: widen args (add optional params, widen field types), narrow returns. ' +
     'Rejected: removing required args, narrowing arg types, widening returns.',
-  schema: (ctx) => {
-    const opts = buildSchemas(ctx.registry);
-    return z.object({
-      name: z.string().describe('Saved function name (matches the file at `./fns/<name>.json`).'),
-      description: z.string().describe('Updated description for the body programmer'),
-      types: z
-        .record(z.string(), opts.Type as z.ZodType<TypeDef>)
-        .optional()
-        .describe('Optional `call.types` aliases — same semantics as `create_new_fn`.'),
-      args: (opts.Type as z.ZodType<TypeDef>).describe('New args TypeDef. Must accept every value the old args accepted.'),
-      returns: (opts.Type as z.ZodType<TypeDef>).describe('New return TypeDef. Must be assignable back into the old return type.'),
-    });
-  },
+  schema: GinGrammar.result(a.object({
+    name: a.string().describe('Saved function name (matches the file at `./fns/<name>.json`).'),
+    description: a.string().describe('Updated description for the body programmer'),
+    types: a
+      .record(a.ref('TypeDef'))
+      .optional()
+      .describe('Optional `call.types` aliases — same semantics as `create_new_fn`.'),
+    args: a.ref('TypeDef').describe('New args TypeDef. Must accept every value the old args accepted.'),
+    returns: a.ref('TypeDef').describe('New return TypeDef. Must be assignable back into the old return type.'),
+  })).adapt((ctx: GrammarCtx) => [ctx.registry]),
   applicable: (ctx) => (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
   call: async (
     input: {
@@ -572,9 +567,9 @@ Request: {{description}}`,
   tools: [searchFns, getFn, printFn, createNewFn, editFn, ask],
   toolIterations: toolIterationsConfig(),
   excludeMessages: true,
-  schema: z.object({
-    use: z.array(z.string()).default([]).describe('Names of existing functions confirmed via get_fn / search_fns.'),
-    created: z.array(z.string()).default([]).describe('Names of functions create_new_fn successfully wrote to disk this session. Do NOT include names where create_new_fn errored.'),
+  schema: a.object({
+    use: a.array(a.string()).default([]).describe('Names of existing functions confirmed via get_fn / search_fns.'),
+    created: a.array(a.string()).default([]).describe('Names of functions create_new_fn successfully wrote to disk this session. Do NOT include names where create_new_fn errored.'),
   }),
   // Round-trip the designer's structured output against disk before
   // returning it. Anything in `use` / `created` must actually be

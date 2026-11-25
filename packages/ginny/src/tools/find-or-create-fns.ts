@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 import { designer } from '../prompts/designer';
 import { runSubagent } from '../progress';
@@ -13,8 +13,8 @@ export const findOrCreateFunctions = ai.tool({
   name: 'find_or_create_functions',
   description: 'Locate or author reusable functions. Returns their signatures.',
   instructions: 'Delegates to the designer. Provide a description of what is needed.',
-  schema: z.object({
-    description: z.string().describe('What functions are needed and why'),
+  schema: a.object({
+    description: a.string().describe('What functions are needed and why'),
   }),
   // Two reasons to withhold this tool:
   //  1. Past the depth cap, exposing it lets the agent loop forever

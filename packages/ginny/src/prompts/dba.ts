@@ -1,6 +1,7 @@
-import { z } from 'zod';
-import { buildSchemas } from '@aeye/gin';
+import { a } from '@aeye/schema';
+import { GinGrammarStatic, grammarDefs, grammarKey, type GinShapes } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
+import { valueSchemaFor, type GrammarCtx } from '../schemas';
 import { ai } from '../ai';
 import { modelFor, toolIterationsConfig } from '../model-selection';
 import { refreshVarsGlobal } from '../vars-global';
@@ -10,9 +11,9 @@ const searchVars = ai.tool({
   name: 'search_vars',
   description: 'Search existing vars by keywords.',
   instructions: 'Search the vars catalog.',
-  schema: z.object({
-    keywords: z.array(z.string()),
-    limit: z.number().optional().default(10),
+  schema: a.object({
+    keywords: a.array(a.string()),
+    limit: a.number().default(10),
   }),
   call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
     const results = ctx.store.searchVars({ keywords: input.keywords, limit: input.limit });
@@ -25,7 +26,7 @@ const getVar = ai.tool({
   name: 'get_var',
   description: 'Get the full definition of a var by name.',
   instructions: 'Retrieve full var definition (type, value, docs).',
-  schema: z.object({ name: z.string() }),
+  schema: a.object({ name: a.string() }),
   call: async (input: { name: string }, _refs, ctx) => {
     try {
       const def = ctx.store.readVar(input.name);
@@ -40,15 +41,19 @@ const createVar = ai.tool({
   name: 'create_var',
   description: 'Create a new persistent var.',
   instructions: 'Create a typed named var. Provide name, type (TypeDef JSON), value, optional docs.',
-  schema: (ctx) => {
-    const opts = buildSchemas(ctx.registry);
-    return z.object({
-      name: z.string().describe('Var name (camelCase)'),
-      type: opts.Type as z.ZodType<TypeDef>,
-      value: z.unknown(),
-      docs: z.string().optional(),
-    });
-  },
+  // `value` is typed by the `type` the model wrote beside it: checked against that type's value schema on decode.
+  schema: GinGrammarStatic
+    .declare<{ CreateVar: { name: string; type: GinShapes.TypeDef; value: unknown; docs?: string } }>()
+    .dynamic((ctx: GrammarCtx) => ({
+      ...grammarDefs(ctx.registry),
+      CreateVar: a.object({
+        name: a.string().describe('Var name (camelCase)'),
+        type: a.ref('TypeDef'),
+        value: a.unknown(),
+        docs: a.string().optional(),
+      }).dependent('value', 'type', valueSchemaFor(ctx.registry)),
+    }), { key: (ctx) => grammarKey(ctx.registry) })
+    .result('CreateVar'),
   call: async (
     input: { name: string; type: TypeDef; value: unknown; docs?: string },
     _refs,
@@ -90,8 +95,8 @@ Request: {{description}}`,
   tools: [searchVars, getVar, createVar, ask],
   toolIterations: toolIterationsConfig(),
   excludeMessages: true,
-  schema: z.object({
-    use: z.array(z.string()).default([]).describe('Names of existing vars to use'),
-    created: z.array(z.string()).default([]).describe('Names of newly created vars'),
+  schema: a.object({
+    use: a.array(a.string()).default([]).describe('Names of existing vars to use'),
+    created: a.array(a.string()).default([]).describe('Names of newly created vars'),
   }),
 });

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 import { modelFor, toolIterationsConfig } from '../model-selection';
 import { webSearch } from '../tools/web-search';
@@ -38,8 +38,8 @@ Question: {{question}}`,
   tools: [webSearch, webGetPage, ask],
   toolIterations: toolIterationsConfig(),
   excludeMessages: true,
-  schema: z.object({
-    answer: z.string().describe('The researched answer, concise and factual.'),
-    sources: z.array(z.string()).default([]).describe('URLs actually consulted.'),
+  schema: a.object({
+    answer: a.string().describe('The researched answer, concise and factual.'),
+    sources: a.array(a.string()).default([]).describe('URLs actually consulted.'),
   }),
 });

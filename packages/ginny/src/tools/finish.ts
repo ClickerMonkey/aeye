@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ToolInterrupt } from '@aeye/core';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
@@ -54,12 +54,12 @@ export const finish = ai.tool({
     'Call only after test() succeeds. Pass `saveAs` to persist the draft as a callable function ' +
     '(`fns/<saveAs>.json`) so the user — and future requests — can invoke it by name. Omit `saveAs` ' +
     'for one-shot answers that don\'t need to be reused.',
-  schema: z.object({
-    saveAs: z
+  schema: a.object({
+    saveAs: a
       .string()
       .optional()
       .describe('Save the finalized draft as `fns/<saveAs>.json`. Use a stable, descriptive camelCase name.'),
-    docs: z
+    docs: a
       .string()
       .optional()
       .describe('Short description of what the saved function does. Stored on the TypeDef so search_fns surfaces it.'),

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 import { researcher } from '../prompts/researcher';
 import { runSubagent } from '../progress';
@@ -19,8 +19,8 @@ export const research = ai.tool({
   name: 'research',
   description: 'Ask a factual question; the researcher searches the web and reads pages to answer.',
   instructions: 'Pose a natural-language question. Returns an answer plus the URLs consulted.',
-  schema: z.object({
-    question: z.string().describe('The factual question to research'),
+  schema: a.object({
+    question: a.string().describe('The factual question to research'),
   }),
   call: async (input: { question: string }, _refs, ctx) => {
     const result = await runSubagent(

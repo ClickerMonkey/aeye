@@ -1,12 +1,12 @@
-import { z } from 'zod';
+import { a, type AnySchema, type SchemaOf } from '@aeye/schema';
 import { ToolInterrupt } from '@aeye/core';
-import { LambdaExpr, val, type Value, type ObjType, type Registry } from '@aeye/gin';
+import { GinGrammarStatic, grammarDefs, grammarKey, LambdaExpr, val, type Value, type ObjType, type Registry } from '@aeye/gin';
 import { ai } from '../ai';
 import { flushDirtyVars } from '../vars-global';
 import { withAskHandler } from '../natives/ask';
 
 /**
- * Build the Zod sub-schema the model sees for `args`.
+ * Build the sub-schema the model sees for `args`.
  *
  * - When the designer is authoring a fn (`ctx.targetFn?.argsType` is
  *   set), use that obj type's value-side schema directly. The model
@@ -17,18 +17,52 @@ import { withAskHandler } from '../natives/ask';
  *   external scope vars; keep a permissive record fallback so the
  *   tool still works for ad-hoc one-off uses.
  */
-function buildArgsSchema(argsType: ObjType | undefined): z.ZodTypeAny {
+function buildArgsSchema(argsType: ObjType | undefined): AnySchema {
   if (argsType) {
-    return argsType.toValueSchema({ includeDocs: 'all' }).describe(
+    return argsType.toA({ includeDocs: 'all' }).describe(
       `Scope values — keys ARE the function's parameter names. The function body reads each via [{prop:'args'}, {prop:'<name>'}]. Pass concrete sample values matching the args type.`,
     );
   }
-  return z
-    .record(z.string(), z.unknown())
+  return a
+    .record(a.unknown())
     .describe(
       'Scope variables for the top-level draft. Keys become variable names the program reads by name.',
     );
 }
+
+/** The ctx the args schema reads: the registry and the fn being authored. */
+interface TestCtx {
+  readonly registry: Registry;
+  readonly targetFn?: { readonly argsType: ObjType };
+}
+
+/** A per-object id for the bind cache key (the fn being authored). */
+const ids = new WeakMap<object, number>();
+let nextId = 0;
+const idOf = (o: object): number => {
+  let id = ids.get(o);
+  if (id === undefined) ids.set(o, (id = ++nextId));
+  return id;
+};
+
+/**
+ * The test args: `args` typed by the authored fn's args (its named types and
+ * `typ` / `fn` slots resolve in gin's grammar), cached per registry version
+ * and fn.
+ */
+const TestArgs = GinGrammarStatic
+  .declare<{ TestScope: Record<string, unknown> }>()
+  .dynamic(
+    (ctx: TestCtx) => ({
+      ...grammarDefs(ctx.registry, { namedRefs: true }),
+      TestScope: buildArgsSchema(ctx.targetFn?.argsType) as SchemaOf<Record<string, unknown>>,
+    }),
+    { key: (ctx) => `${grammarKey(ctx.registry, { namedRefs: true })}|${ctx.targetFn ? idOf(ctx.targetFn.argsType) : '-'}` },
+  )
+  .result(a.object({
+    args: a.ref('TestScope').optional(),
+    expectError: a.boolean().optional().describe('If true, a runtime error counts as success'),
+  }));
 
 function formatError(err: unknown): string {
   if (err instanceof Error) return err.message || err.name || 'Error';
@@ -51,11 +85,7 @@ export const test = ai.tool({
   description: 'Execute the stored draft program and return the result.',
   instructions:
     'Run the draft. `args` are the values bound under the `args` scope variable — its schema reflects the function being authored when one is in scope, so just pass concrete values for each parameter. Set `expectError: true` if a runtime error is the expected outcome.',
-  schema: (ctx) =>
-    z.object({
-      args: buildArgsSchema(ctx.targetFn?.argsType).optional(),
-      expectError: z.boolean().optional().describe('If true, a runtime error counts as success'),
-    }) as unknown as z.ZodType<{ args?: Record<string, unknown>; expectError?: boolean }>,
+  schema: TestArgs,
   applicable: (ctx) => !!ctx.runState.draft,
   call: async (
     input: { args?: Record<string, unknown>; expectError?: boolean },

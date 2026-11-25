@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 import { fetchAndConvert } from '../web-content';
 import { throwIfAborted, withAbortRace } from '../signal-utils';
@@ -24,8 +24,8 @@ export const webGetPage = ai.tool({
   instructions:
     'Provide a URL. HTML is rendered with a headless browser, so SPA pages work. ' +
     'PDF/DOCX/XLSX are parsed to markdown. Output is truncated to ~16k chars; ask narrower follow-up questions if more detail is needed.',
-  schema: z.object({
-    url: z.string().describe('URL to fetch'),
+  schema: a.object({
+    url: a.string().describe('URL to fetch'),
   }),
   applicable: (ctx) => !!ctx.features?.webSearch,
   call: async (input: { url: string }, _refs, ctx) => {

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 
 /**
@@ -17,9 +17,9 @@ export const searchVars = ai.tool({
     + 'Pass keywords to score-rank when the catalog grows large. Returns one '
     + 'line per var — `name: <docs or fallback>`. Read a var\'s value via '
     + '`vars.<name>` in a program.',
-  schema: z.object({
-    keywords: z.array(z.string()).default([]),
-    limit: z.number().optional().default(20),
+  schema: a.object({
+    keywords: a.array(a.string()).default([]),
+    limit: a.number().default(20),
   }),
   call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
     const results = ctx.store.searchVars({ keywords: input.keywords, limit: input.limit });

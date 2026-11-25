@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import type { TypeDef } from '@aeye/gin';
 import { Type } from '@aeye/gin';
 import { ai } from '../ai';
@@ -30,10 +30,9 @@ export const printFn = ai.tool({
     'Look up a saved fn by name and return its signature + body in `fn name<G>(args): R { types; body }` form. '
     + 'Use `includeComments: false` to drop docs/comment annotations and just show the structure. '
     + 'Errors when the fn does not exist on disk.',
-  schema: z.object({
-    name: z.string().describe('Function name (matches the file at `./fns/<name>.json`).'),
-    includeComments: z.boolean()
-      .optional()
+  schema: a.object({
+    name: a.string().describe('Function name (matches the file at `./fns/<name>.json`).'),
+    includeComments: a.boolean()
       .default(true)
       .describe('Include inline `/* docs */` and `// line` comments. Default true.'),
   }),

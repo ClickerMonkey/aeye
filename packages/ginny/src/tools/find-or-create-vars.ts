@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { ai } from '../ai';
 import { dba } from '../prompts/dba';
 import { loadVarInto, refreshVarsGlobal } from '../vars-global';
@@ -13,8 +13,8 @@ export const findOrCreateVars = ai.tool({
   name: 'find_or_create_vars',
   description: 'Locate or create named typed vars. Returns their type signatures.',
   instructions: 'Delegates to the dba. Provide a description of the vars needed.',
-  schema: z.object({
-    description: z.string().describe('What vars are needed and why'),
+  schema: a.object({
+    description: a.string().describe('What vars are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx) => {
     const result = await runSubagent(
